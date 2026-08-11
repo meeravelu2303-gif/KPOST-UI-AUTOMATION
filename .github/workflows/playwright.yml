@@ -1,0 +1,86 @@
+name: KPost UI E2E
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  # Allow manual runs from the Actions tab.
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Shard the cross-browser matrix so each browser runs in its own job in
+    # parallel — faster feedback and isolated, readable failures.
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, firefox, webkit]
+
+    env:
+      CI: 'true'
+      TEST_ENV: ci
+      BASE_URL: https://localhost:3000
+      # Pull credentials from repository/organization secrets — never hard-code.
+      STANDARD_USER_EMAIL: ${{ secrets.STANDARD_USER_EMAIL }}
+      STANDARD_USER_PASSWORD: ${{ secrets.STANDARD_USER_PASSWORD }}
+      ADMIN_USER_EMAIL: ${{ secrets.ADMIN_USER_EMAIL }}
+      ADMIN_USER_PASSWORD: ${{ secrets.ADMIN_USER_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        # Use `npm ci` once a package-lock.json is committed (recommended for
+        # reproducible builds); `npm install` keeps this scaffold runnable
+        # before the lock file is generated/committed.
+        run: npm install --no-audit --no-fund
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps ${{ matrix.project }}
+
+      # The KPost React app must be reachable at BASE_URL before tests run.
+      # Replace this step with however your app is provisioned in CI, e.g.:
+      #   - start a container:  docker compose up -d kpost-web
+      #   - or build + serve:   npm --prefix ../kpost-web ci && npm --prefix ../kpost-web start &
+      # Then wait for it to be ready.
+      - name: Start KPost app (placeholder)
+        run: |
+          echo "Provision the KPost app so it serves on ${BASE_URL}."
+          echo "Example wait-for-ready:"
+          echo "  npx wait-on --timeout 120000 ${BASE_URL}"
+
+      - name: Run Playwright tests
+        run: npx playwright test --project=${{ matrix.project }}
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.project }}
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload traces & videos on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.project }}
+          path: test-results/
+          retention-days: 14
