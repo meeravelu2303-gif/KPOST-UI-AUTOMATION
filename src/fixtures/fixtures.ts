@@ -19,6 +19,8 @@ import { test as base, expect, type Page } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { PostCreationPage } from '../pages/PostCreationPage';
+import { PostDetailPage } from '../pages/PostDetailPage';
+import { ProfilePage } from '../pages/ProfilePage';
 import { STANDARD_STORAGE_STATE } from '../config/global-setup';
 import { env, type Credentials } from '../config/env';
 
@@ -27,6 +29,8 @@ interface KPostFixtures {
   loginPage: LoginPage;
   dashboardPage: DashboardPage;
   postCreationPage: PostCreationPage;
+  postDetailPage: PostDetailPage;
+  profilePage: ProfilePage;
   /** A page in a fresh, unauthenticated context (for login/logout tests). */
   anonymousPage: Page;
   /** Convenience accessor for the seeded standard-user credentials. */
@@ -51,6 +55,14 @@ export const test = base.extend<KPostFixtures>({
 
   postCreationPage: async ({ page }, use) => {
     await use(new PostCreationPage(page));
+  },
+
+  postDetailPage: async ({ page }, use) => {
+    await use(new PostDetailPage(page));
+  },
+
+  profilePage: async ({ page }, use) => {
+    await use(new ProfilePage(page));
   },
 
   /**

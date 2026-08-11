@@ -149,6 +149,10 @@ export abstract class BasePage {
     await expect(locator).toContainText(expected);
   }
 
+  async expectValue(locator: Locator, expected: string | RegExp): Promise<void> {
+    await expect(locator).toHaveValue(expected);
+  }
+
   async expectEnabled(locator: Locator): Promise<void> {
     await expect(locator).toBeEnabled();
   }

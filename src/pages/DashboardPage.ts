@@ -19,6 +19,8 @@ export class DashboardPage extends BasePage {
   private readonly feedItems: Locator;
   private readonly loadingSpinner: Locator;
   private readonly emptyFeedState: Locator;
+  private readonly searchInput: Locator;
+  private readonly nextPageButton: Locator;
 
   constructor(page: Page) {
     super(page);
@@ -31,6 +33,8 @@ export class DashboardPage extends BasePage {
     this.feedItems = this.feed.getByRole('article');
     this.loadingSpinner = page.getByRole('status').filter({ hasText: /loading/i });
     this.emptyFeedState = page.getByText(/no posts yet|nothing here/i);
+    this.searchInput = page.getByRole('searchbox').or(page.getByPlaceholder(/search/i));
+    this.nextPageButton = page.getByRole('button', { name: /next( page)?/i });
   }
 
   /** Wait until the dashboard shell and feed have finished loading. */
@@ -66,6 +70,29 @@ export class DashboardPage extends BasePage {
 
   async expectEmptyFeed(): Promise<void> {
     await this.expectVisible(this.emptyFeedState);
+  }
+
+  /**
+   * Search the feed. Waits for the results request that the typed query
+   * triggers so the assertion runs against the refreshed feed, not the old one.
+   */
+  async search(term: string): Promise<void> {
+    await this.fill(this.searchInput, term);
+    await Promise.all([
+      this.page.waitForResponse(
+        (res) => /\/api\/posts/i.test(res.url()) && /[?&](q|search)=/i.test(res.url()) && res.ok(),
+      ),
+      this.searchInput.press('Enter'),
+    ]);
+  }
+
+  /** Advance to the next page of results and wait for the page-2 request. */
+  async goToNextPage(): Promise<void> {
+    await this.clickAndWaitForResponse(
+      this.nextPageButton,
+      /\/api\/posts/i,
+      (res) => /[?&]page=/i.test(res.url()) && res.ok(),
+    );
   }
 
   /** Open the account menu and log out. */

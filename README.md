@@ -55,8 +55,10 @@ KPOST-UI-AUTOMATION/
 │   ├── pages/
 │   │   ├── BasePage.ts             # Abstract base: safe click/fill, waits, dynamic assertions
 │   │   ├── LoginPage.ts            # POM for the auth screen
-│   │   ├── DashboardPage.ts        # POM for the authenticated feed/home
-│   │   └── PostCreationPage.ts     # POM for the compose/editor screen
+│   │   ├── DashboardPage.ts        # POM for the feed/home (search + pagination)
+│   │   ├── PostCreationPage.ts     # POM for the compose/editor screen
+│   │   ├── PostDetailPage.ts       # POM for view/edit/delete of a single post
+│   │   └── ProfilePage.ts          # POM for the profile view/edit form
 │   ├── fixtures/
 │   │   └── fixtures.ts             # Custom test/expect: injects page objects + session state
 │   ├── utils/
@@ -75,9 +77,14 @@ KPOST-UI-AUTOMATION/
 │   │   ├── login.spec.ts           # Valid/invalid/validation (data-driven), runs logged-out
 │   │   └── logout.spec.ts          # Logout + protected-route redirect
 │   ├── dashboard/
-│   │   └── dashboard.spec.ts       # Shell + empty/populated/error feed via route mocking
-│   └── posts/
-│       └── post-creation.spec.ts   # Happy path + validation + boundary + API-failure edge cases
+│   │   ├── dashboard.spec.ts       # Shell + empty/populated/error feed via route mocking
+│   │   └── feed-search.spec.ts     # Search filtering + pagination via query-keyed mocking
+│   ├── posts/
+│   │   ├── post-creation.spec.ts   # Happy path + validation + boundary + API-failure edge cases
+│   │   └── post-management.spec.ts # Edit + delete (confirm dialog) via route mocking
+│   └── profile/
+│       └── profile.spec.ts         # View + update display name + validation
+├── CLAUDE.md                       # Repo working contract (conventions, how to add tests/POMs)
 ├── .auth/                          # (gitignored) persisted storageState from globalSetup
 ├── playwright-report/              # (gitignored) HTML report
 ├── test-results/                   # (gitignored) traces, videos, screenshots, JSON/JUnit
