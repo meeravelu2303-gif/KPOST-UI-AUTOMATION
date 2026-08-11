@@ -77,10 +77,22 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Start KPost app
-        # Replace with however KPost boots in CI, e.g.:
-        #   docker compose up -d kpost-web
-        #   npm --prefix ./kpost-web ci && npm --prefix ./kpost-web start &
-        run: echo "TODO: provision the KPost app so it serves on ${BASE_URL}"
+        # The exact boot command is repo-specific, so it's supplied as a
+        # repository variable (Settings → Secrets and variables → Actions →
+        # Variables → KPOST_START_CMD) rather than hard-coded here. Examples:
+        #   docker compose up -d --wait kpost-web
+        #   npm --prefix ./app ci && (npm --prefix ./app run start &)
+        #   docker run -d -p 3000:3000 ghcr.io/your-org/kpost-web:latest
+        env:
+          KPOST_START_CMD: ${{ vars.KPOST_START_CMD }}
+        run: |
+          if [ -z "$KPOST_START_CMD" ]; then
+            echo "::error::KPOST_START_CMD is not set. Add a repository variable" \
+                 "with the command that boots KPost on ${BASE_URL}."
+            exit 1
+          fi
+          echo "Starting KPost app: $KPOST_START_CMD"
+          bash -c "$KPOST_START_CMD"
 
       - name: Wait for app to be ready
         run: npx wait-on --timeout 120000 --interval 2000 "${BASE_URL}"

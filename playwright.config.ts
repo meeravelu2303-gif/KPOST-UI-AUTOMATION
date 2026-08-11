@@ -65,6 +65,12 @@ export default defineConfig({
     headless: env.headless,
     launchOptions: {
       slowMo: env.slowMo,
+      // Opt-in override for images that ship a browser at a fixed path instead
+      // of a Playwright-downloaded build (set PW_EXECUTABLE_PATH). Ignored when
+      // unset, so normal local/CI installs behave as usual.
+      ...(process.env.PW_EXECUTABLE_PATH
+        ? { executablePath: process.env.PW_EXECUTABLE_PATH }
+        : {}),
     },
 
     /* Locale/timezone pinned for deterministic date/number rendering. */

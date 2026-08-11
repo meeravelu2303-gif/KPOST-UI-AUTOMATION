@@ -60,6 +60,14 @@ export interface EnvConfig {
     readonly standard: Credentials;
     readonly admin: Credentials;
   };
+  readonly auth: {
+    /** 'api' → fast API login for storage state; 'ui' → drive the login form. */
+    readonly mode: 'api' | 'ui';
+    /** Login endpoint path, relative to apiBaseURL (POST email+password). */
+    readonly loginPath: string;
+    /** localStorage key the SPA reads the auth token from (token-based apps). */
+    readonly tokenStorageKey: string;
+  };
 }
 
 export const env: EnvConfig = Object.freeze({
@@ -80,5 +88,10 @@ export const env: EnvConfig = Object.freeze({
       email: required('ADMIN_USER_EMAIL', 'admin.user@kpost.test'),
       password: required('ADMIN_USER_PASSWORD', 'Str0ng-Admin-Passw0rd!'),
     },
+  },
+  auth: {
+    mode: (optional('AUTH_MODE', 'api') as 'api' | 'ui'),
+    loginPath: optional('AUTH_LOGIN_PATH', '/auth/login'),
+    tokenStorageKey: optional('AUTH_TOKEN_STORAGE_KEY', 'kpost.authToken'),
   },
 });

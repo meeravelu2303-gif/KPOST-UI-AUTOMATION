@@ -23,8 +23,10 @@ import { PostDetailPage } from '../pages/PostDetailPage';
 import { ProfilePage } from '../pages/ProfilePage';
 import { STANDARD_STORAGE_STATE } from '../config/global-setup';
 import { env, type Credentials } from '../config/env';
+import { apiLogin, apiCreatePost, apiDeletePost, type AuthResult } from '../utils/api-helpers';
+import type { Post } from '../types';
 
-/** Everything the framework injects into a test. */
+/** Test-scoped fixtures — recreated per test. */
 interface KPostFixtures {
   loginPage: LoginPage;
   dashboardPage: DashboardPage;
@@ -36,9 +38,21 @@ interface KPostFixtures {
   /** Convenience accessor for the seeded standard-user credentials. */
   standardUser: Credentials;
   adminUser: Credentials;
+  /**
+   * Seed a post via the API and get its id back. Every post seeded through this
+   * fixture is automatically deleted in teardown, so tests stay atomic and
+   * leave no residue in a shared backend.
+   */
+  seedPost: (post: Post) => Promise<string>;
 }
 
-export const test = base.extend<KPostFixtures>({
+/** Worker-scoped fixtures — created once per worker and reused across its tests. */
+interface KPostWorkerFixtures {
+  /** Standard-user API auth (token + cookies), obtained once per worker. */
+  apiAuth: AuthResult;
+}
+
+export const test = base.extend<KPostFixtures, KPostWorkerFixtures>({
   /**
    * Authenticated context by default. `storageState` from global setup is
    * applied to every test's context unless a describe block overrides it.
@@ -83,6 +97,30 @@ export const test = base.extend<KPostFixtures>({
 
   adminUser: async ({}, use) => {
     await use(env.users.admin);
+  },
+
+  // Worker-scoped: one API login per worker, shared by all its tests.
+  apiAuth: [
+    async ({}, use) => {
+      const auth = await apiLogin(env.users.standard);
+      await use(auth);
+    },
+    { scope: 'worker' },
+  ],
+
+  // Test-scoped: seed posts via the API and clean them up afterwards.
+  seedPost: async ({ apiAuth }, use) => {
+    const createdIds: string[] = [];
+    const seed = async (post: Post): Promise<string> => {
+      const id = await apiCreatePost(apiAuth, post);
+      createdIds.push(id);
+      return id;
+    };
+    await use(seed);
+    // Teardown: best-effort delete so seeded data never leaks between tests.
+    for (const id of createdIds) {
+      await apiDeletePost(apiAuth, id).catch(() => undefined);
+    }
   },
 });
 
