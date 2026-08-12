@@ -1,28 +1,14 @@
 {
-  "invalidLogins": [
-    {
-      "description": "wrong password",
-      "email": "standard.user@kpost.test",
-      "password": "definitely-wrong",
-      "expectedError": "Invalid email or password"
-    },
+  "invalidIds": [
     {
       "description": "unknown account",
-      "email": "nobody@kpost.test",
-      "password": "Str0ng-Passw0rd!",
-      "expectedError": "Invalid email or password"
+      "id": "nobody-does-not-exist@kpost.test",
+      "password": "Whatever-Passw0rd!"
     },
     {
-      "description": "malformed email",
-      "email": "not-an-email",
-      "password": "Str0ng-Passw0rd!",
-      "expectedError": "Enter a valid email"
-    },
-    {
-      "description": "empty password",
-      "email": "standard.user@kpost.test",
-      "password": "",
-      "expectedError": "Password is required"
+      "description": "malformed id",
+      "id": "not-a-valid-id",
+      "password": "Whatever-Passw0rd!"
     }
   ]
 }

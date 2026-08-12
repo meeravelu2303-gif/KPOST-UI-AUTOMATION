@@ -60,9 +60,11 @@ async function seedViaUi(browser: Browser): Promise<void> {
   });
   const page = await context.newPage();
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
-  await page.getByLabel(/email/i).fill(env.users.standard.email);
-  await page.getByLabel(/password/i).fill(env.users.standard.password);
-  await page.getByRole('button', { name: /sign in|log in/i }).click();
+  // KPost two-step login: KPOST ID → Submit → password → Login.
+  await page.getByRole('textbox', { name: 'Enter KPOST ID / Mobile number' }).fill(env.users.standard.email);
+  await page.getByRole('button', { name: 'Submit' }).click();
+  await page.getByRole('textbox', { name: 'Enter your password' }).fill(env.users.standard.password);
+  await page.getByRole('button', { name: 'Login' }).click();
   await page.waitForURL(/\/home/i, { timeout: 30_000 });
   await context.storageState({ path: STANDARD_STORAGE_STATE });
   await context.close();
