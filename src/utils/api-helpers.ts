@@ -10,6 +10,21 @@
  *   POST {apiBaseURL}{AUTH_LOGIN_PATH}   body: { email, password }
  *        → 200 with a JSON token in one of the common shapes below, and/or a
  *          Set-Cookie session. Both are captured into the persisted state.
+ *
+ * ── On the KMail 401s (investigated 2026-08-12) ──
+ * KMail used to 401 against `kmail5.kpostindia.com/kmail5/v2/common/*`. That was
+ * NOT a token-propagation bug on our side, and no change here would have fixed
+ * it. Replaying one of those endpoints three ways — `Authorization: Bearer
+ * <token>`, the raw token, and no auth header at all — returned the *identical*
+ * response every time:
+ *     401 {"status":"UNAUTHORIZED","debugMessage":"Invalid Data"}
+ * A service that answers the same with and without credentials is not rejecting
+ * our credentials. The app has since been fixed and no longer calls that host at
+ * all; KMail's data now comes from `localhost:8989`.
+ *
+ * Note also that KPost sets **no auth cookies** — a session is entirely
+ * localStorage (accessToken, refreshToken, isAuthenticated, Authuser,
+ * deviceIdentity_primary, and an encrypted redux-persist blob).
  */
 import { type APIRequestContext, type Cookie, request as playwrightRequest } from '@playwright/test';
 import { env, type Credentials } from '../config/env';
@@ -19,6 +34,8 @@ import type { Post } from '../types';
 export interface AuthResult {
   /** Bearer token, if the API is token-based (empty for pure-cookie auth). */
   token: string;
+  /** Refresh token, when the API issues one. KPost's real session carries both. */
+  refreshToken: string;
   /** Cookies the API set during login (empty for pure-token auth). */
   cookies: Cookie[];
 }
@@ -57,10 +74,16 @@ export async function apiLogin(credentials: Credentials): Promise<AuthResult> {
     if (!response.ok()) {
       throw new Error(`API login failed: ${response.status()} ${await response.text()}`);
     }
-    const token = extractToken(await response.json().catch(() => ({})));
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const token = extractToken(body);
+    const refreshToken = typeof body.refreshToken === 'string' ? body.refreshToken : '';
     const cookies = (await context.storageState()).cookies;
-    logger.info('API login succeeded', { tokenBased: token !== '', cookieCount: cookies.length });
-    return { token, cookies };
+    logger.info('API login succeeded', {
+      tokenBased: token !== '',
+      hasRefreshToken: refreshToken !== '',
+      cookieCount: cookies.length,
+    });
+    return { token, refreshToken, cookies };
   } finally {
     await context.dispose();
   }

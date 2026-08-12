@@ -29,30 +29,37 @@ import { type Locator, type Page, expect } from '@playwright/test';
  */
 export async function waitForAppReady(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded');
-  await assertAppCompiled(page);
+  await assertNoAppErrorOverlay(page);
   // Flush one React commit cycle.
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   );
 }
 
-/** The iframe webpack-dev-server injects over the page when a build fails. */
+/** The iframe the dev server injects over the page to report an app error. */
 const DEV_SERVER_OVERLAY = '#webpack-dev-server-client-overlay';
 
 /**
- * Fail fast, and legibly, when the app under test does not compile.
+ * Fail fast, and legibly, when the app under test has raised an error.
  *
- * When the KPost dev server hits a build error it injects a full-page iframe
- * overlay. The server still answers 200, so from the suite's point of view the
- * app is "up" — but every locator then either times out ("element not found")
- * or is blocked ("<iframe id=webpack-dev-server-client-overlay> intercepts
- * pointer events"). Both readings send you hunting for a test bug that isn't
- * there; this has already cost two debugging sessions.
+ * The KPost dev server injects a full-page iframe overlay for **both** build
+ * failures and uncaught runtime errors. The server still answers 200, so from
+ * the suite's point of view the app is "up" — but the overlay then blocks
+ * pointer events, and any click reports the useless
+ * "<iframe id=webpack-dev-server-client-overlay> intercepts pointer events".
+ * Reads (assertions, `fill`) still work, which makes the failure look
+ * arbitrary: some tests pass, the ones that click do not.
  *
- * So we detect the overlay, pull the compiler error out of it, and raise it as
- * the failure — turning a mystery timeout into "the app is broken, here's why".
+ * That reading has already cost several debugging sessions, so we detect the
+ * overlay, pull the real error out of it — compiler message or runtime stack —
+ * and raise that instead.
+ *
+ * Note this overlay is a **dev-mode** artifact. Against a production build it
+ * would not exist, and the underlying error would instead surface as a silently
+ * broken feature — so treat anything this reports as a genuine app defect, not
+ * merely a local annoyance.
  */
-export async function assertAppCompiled(page: Page): Promise<void> {
+export async function assertNoAppErrorOverlay(page: Page): Promise<void> {
   const overlay = page.locator(DEV_SERVER_OVERLAY);
   if (!(await overlay.isVisible().catch(() => false))) return;
 
@@ -63,9 +70,9 @@ export async function assertAppCompiled(page: Page): Promise<void> {
     .catch(() => '');
 
   throw new Error(
-    'The application under test failed to compile — the webpack dev-server error ' +
-      'overlay is covering the page, so locators will time out or be intercepted. ' +
-      'This is an app problem, not a test problem.\n\n' +
+    'The application under test raised an error — the dev-server error overlay is ' +
+      'covering the page, so clicks will be intercepted. This is an app problem, ' +
+      'not a test problem.\n\n' +
       (detail.trim().slice(0, 800) || '(overlay text could not be read)'),
   );
 }

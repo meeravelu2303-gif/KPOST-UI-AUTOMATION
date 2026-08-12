@@ -11,18 +11,23 @@
  *            Business / Institution / Government) — with `button "Continue"`
  *            disabled until the required selections are made.
  *
- * GATED    · The contact search and directory list sit behind that wizard, so
- *            they could not be observed with the standard test user. Completing
- *            the wizard permanently onboards the account into a vertical, which
- *            is a real account mutation — deliberately not performed during
- *            discovery. Those locators are therefore conventional, not verified,
- *            and are written role-first so only these declarations should need
- *            revisiting once a pre-onboarded fixture user exists.
+ * GATED    · The contact search, directory list, and result filters sit behind
+ *            that wizard, so they could not be observed with the standard test
+ *            user. Re-probed on 2026-08-12: still gated, still the same wizard.
+ *            Completing it permanently onboards the account into a vertical,
+ *            which is a real account mutation — deliberately not performed
+ *            without the owner's say-so. Those locators are therefore
+ *            conventional, not verified, and are written role-first so only
+ *            these declarations should need revisiting once a pre-onboarded
+ *            fixture user exists.
  */
 import { type Locator, type Page, expect, test } from '@playwright/test';
 import { AppShellPage } from './AppShellPage';
 
 export type DirectoryVertical = 'Personal' | 'Business' | 'Institution' | 'Government';
+
+/** Result filters/tabs the directory offers once onboarding is complete. */
+export type DirectoryFilter = DirectoryVertical | 'All';
 
 export class KDirectoryPage extends AppShellPage {
   protected readonly path = '/kdirectory';
@@ -124,19 +129,66 @@ export class KDirectoryPage extends AppShellPage {
   }
 
   // ---------------------------------------------------------------------------
-  // Contact search
+  // Directory search  (GATED — see class doc)
   // ---------------------------------------------------------------------------
 
-  async searchContacts(term: string): Promise<void> {
-    await test.step(`Search the directory for "${term}"`, async () => {
-      await this.fill(this.contactSearch, term);
+  /** Search the directory for a query and submit it. */
+  async searchDirectory(query: string): Promise<void> {
+    await test.step(`Search the directory for "${query}"`, async () => {
+      await this.fill(this.contactSearch, query);
       await this.contactSearch.press('Enter');
     });
   }
 
-  async expectContactVisible(name: string | RegExp): Promise<void> {
-    await test.step(`Expect contact "${name}" in the results`, async () => {
+  /** Clear the directory search box. */
+  async clearDirectorySearch(): Promise<void> {
+    await test.step('Clear the directory search', async () => {
+      await this.fill(this.contactSearch, '');
+    });
+  }
+
+  /** Assert a contact is present in the directory results. */
+  async verifyContactExists(name: string | RegExp): Promise<void> {
+    await test.step(`Verify contact "${name}" exists in the directory`, async () => {
       await expect(this.directoryEntries.filter({ hasText: name }).first()).toBeVisible();
+    });
+  }
+
+  /** Assert a contact is NOT present in the directory results. */
+  async verifyContactAbsent(name: string | RegExp): Promise<void> {
+    await test.step(`Verify contact "${name}" is absent from the directory`, async () => {
+      await expect(this.directoryEntries.filter({ hasText: name })).toHaveCount(0);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Result filters / tabs  (GATED — see class doc)
+  // ---------------------------------------------------------------------------
+
+  /** A directory result filter, located by its accessible name. */
+  private filterTab(filter: DirectoryFilter): Locator {
+    return this.page
+      .getByRole('tab', { name: new RegExp(`^\\s*${filter}\\s*$`, 'i') })
+      .or(this.page.getByRole('button', { name: new RegExp(`^\\s*${filter}\\s*$`, 'i') }))
+      .first();
+  }
+
+  /** Switch the directory results to a given filter/tab. */
+  async openFilter(filter: DirectoryFilter): Promise<void> {
+    await test.step(`Filter the directory by "${filter}"`, async () => {
+      await this.click(this.filterTab(filter));
+    });
+  }
+
+  async expectFilterAvailable(filter: DirectoryFilter): Promise<void> {
+    await test.step(`Expect the "${filter}" filter to be available`, async () => {
+      await expect(this.filterTab(filter)).toBeVisible();
+    });
+  }
+
+  async expectFilterSelected(filter: DirectoryFilter): Promise<void> {
+    await test.step(`Expect the "${filter}" filter to be selected`, async () => {
+      await expect(this.filterTab(filter)).toHaveAttribute('aria-selected', 'true');
     });
   }
 

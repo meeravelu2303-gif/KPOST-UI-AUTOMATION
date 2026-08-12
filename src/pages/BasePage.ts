@@ -15,7 +15,7 @@
  */
 import { type Locator, type Page, expect, type Response } from '@playwright/test';
 import { logger } from '../utils/logger';
-import { waitForAppReady } from '../utils/react-helpers';
+import { waitForAppReady, assertNoAppErrorOverlay } from '../utils/react-helpers';
 
 export abstract class BasePage {
   /** Sub-classes set this so `open()` and `isLoaded()` know where they live. */
@@ -64,7 +64,16 @@ export abstract class BasePage {
   async click(locator: Locator): Promise<void> {
     await locator.waitFor({ state: 'visible' });
     await locator.scrollIntoViewIfNeeded();
-    await locator.click();
+    try {
+      await locator.click();
+    } catch (error) {
+      // A failed click is the usual way an app error surfaces: the dev-server
+      // overlay covers the page and "intercepts pointer events", while reads
+      // keep working. Re-raise the real error if that is what happened;
+      // otherwise the original failure stands.
+      await assertNoAppErrorOverlay(this.page);
+      throw error;
+    }
   }
 
   /** Double click with the same actionability guarantees as `click`. */

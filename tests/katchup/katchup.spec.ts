@@ -74,6 +74,12 @@ test.describe('Katchup feed @regression @katchup', () => {
 
     // Dynamic content: a term generated for this run alone can never match.
     await katchupPage.searchConversations(term);
+
+    // Katchup's contacts backend (localhost:8989/v2/contacts/*) intermittently
+    // 500s, and the app does not handle it — it raises an uncaught error and
+    // the results surface never renders. Check that first, so this fails with
+    // the app's own error rather than a bare "element(s) not found".
+    await katchupPage.expectNoAppError();
     await katchupPage.expectNoSearchResults();
 
     // ...and the feed recovers when the filter is removed.

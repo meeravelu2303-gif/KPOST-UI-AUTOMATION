@@ -27,23 +27,42 @@ import { apiLogin } from '../utils/api-helpers';
 export const AUTH_DIR = path.resolve('.auth');
 export const STANDARD_STORAGE_STATE = path.join(AUTH_DIR, 'standard.json');
 
+/**
+ * Seed a session by calling the API and injecting the result into localStorage.
+ *
+ * KPost does not use auth cookies at all — a signed-in session is a set of
+ * localStorage keys, observed on the live app as:
+ *   accessToken, refreshToken, isAuthenticated, Authuser,
+ *   deviceIdentity_primary, persist:persist:localhost
+ *
+ * So injecting a single bearer token is not enough; we write every key the API
+ * gives us back. `persist:persist:localhost` is an encrypted redux-persist blob
+ * that cannot be synthesised, which is why `AUTH_MODE` defaults to `ui`. This
+ * path stays for when the API contract is wired up — and `verifySession()`
+ * below is what stops it silently producing a half-authenticated state.
+ */
 async function seedViaApi(browser: Browser): Promise<void> {
-  const { token, cookies } = await apiLogin(env.users.standard);
+  const { token, refreshToken, cookies } = await apiLogin(env.users.standard);
 
   const context = await browser.newContext({
     baseURL: env.baseURL,
     ignoreHTTPSErrors: true,
   });
-  // Cookies from the API login (session-cookie auth).
+  // Cookies, in case the deployment ever uses session-cookie auth.
   if (cookies.length > 0) await context.addCookies(cookies);
 
-  // Token-based auth: seed localStorage before any app code runs so the SPA
-  // boots already-authenticated on first navigation.
   if (token) {
-    await context.addInitScript(
-      ([key, value]) => window.localStorage.setItem(key, value),
-      [env.auth.tokenStorageKey, token] as const,
-    );
+    const entries: [string, string][] = [
+      [env.auth.tokenStorageKey, token],
+      ['isAuthenticated', 'true'],
+    ];
+    if (refreshToken) entries.push(['refreshToken', refreshToken]);
+
+    // Seed before any app code runs so the SPA boots already-authenticated.
+    await context.addInitScript((pairs: [string, string][]) => {
+      for (const [key, value] of pairs) window.localStorage.setItem(key, value);
+    }, entries);
+
     const page = await context.newPage();
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.close();
@@ -51,6 +70,43 @@ async function seedViaApi(browser: Browser): Promise<void> {
 
   await context.storageState({ path: STANDARD_STORAGE_STATE });
   await context.close();
+}
+
+/**
+ * Prove the persisted session actually authenticates before any test uses it.
+ *
+ * Without this, a session that fails to propagate shows up as every
+ * authenticated test failing on a confusing "element not found" — the storage
+ * state looks fine on disk, so the real cause is several layers away. Here we
+ * load the saved state into a clean context exactly as the fixtures do, open
+ * `/home`, and require the authenticated shell to render.
+ */
+async function verifySession(browser: Browser): Promise<void> {
+  const context = await browser.newContext({
+    baseURL: env.baseURL,
+    ignoreHTTPSErrors: true,
+    storageState: STANDARD_STORAGE_STATE,
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto('/home', { waitUntil: 'domcontentloaded', timeout: LOGIN_RENDER_TIMEOUT });
+    await page
+      .getByRole('button', { name: /quick access/i })
+      .waitFor({ state: 'visible', timeout: LOGIN_RENDER_TIMEOUT });
+
+    if (/\/login/i.test(page.url())) {
+      throw new Error(`Session did not propagate — /home redirected to ${page.url()}`);
+    }
+    logger.info('Global setup: verified the persisted session authenticates against /home');
+  } catch (error) {
+    throw new Error(
+      'The stored session does not authenticate. The app under test is reachable, but loading ' +
+        `${STANDARD_STORAGE_STATE} into a fresh context does not produce a signed-in /home.\n` +
+        `Cause: ${(error as Error).message}`,
+    );
+  } finally {
+    await context.close();
+  }
 }
 
 /**
@@ -121,6 +177,9 @@ async function globalSetup(_config: FullConfig): Promise<void> {
       await seedViaUi(browser);
     }
     logger.info(`Global setup: stored authenticated state at ${STANDARD_STORAGE_STATE}`);
+
+    // Never hand the suite a session we have not proven works.
+    await verifySession(browser);
   } catch (error) {
     logger.error('Global setup failed to authenticate. Is the KPost app running and seeded?', {
       baseURL: env.baseURL,

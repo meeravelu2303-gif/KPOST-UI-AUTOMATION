@@ -23,6 +23,7 @@
  */
 import { type Locator, type Page, expect, test } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { assertNoAppErrorOverlay } from '../utils/react-helpers';
 import type { KPostModule } from '../types';
 
 /** CSS classes of the icon-only left rail, read off the live DOM. Last-resort
@@ -161,6 +162,19 @@ export abstract class AppShellPage extends BasePage {
   async expectShellVisible(): Promise<void> {
     await test.step('Expect the authenticated app shell', async () => {
       await expect(this.quickAccessButton).toBeVisible({ timeout: SHELL_RENDER_TIMEOUT });
+    });
+  }
+
+  /**
+   * Assert the app has not raised an uncaught error.
+   *
+   * Worth calling explicitly before asserting on UI that renders in response to
+   * an action: when the app throws, the expected element simply never appears,
+   * and a bare "element(s) not found" hides the real cause.
+   */
+  async expectNoAppError(): Promise<void> {
+    await test.step('Expect no app error', async () => {
+      await assertNoAppErrorOverlay(this.page);
     });
   }
 

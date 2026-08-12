@@ -1,27 +1,29 @@
 /**
- * KMail module — launcher presence and module load.
+ * KMail module — navigation, tabs, and mailbox state.
  *
  * Runs authenticated via the default shared-storageState fixture.
  *
- * ⚠ KNOWN PRODUCT/ENVIRONMENT DEFECT (observed 2026-08-12)
- * "opening KMail from Quick Access loads the module" is expected to FAIL today,
- * and that failure is correct signal, not test debt. Launching KMail fires four
- * requests at the KMail backend that all return 401:
- *   GET  https://kmail5.kpostindia.com/kmail5/v2/common/frequentKmailContact/
- *   POST https://kmail5.kpostindia.com/kmail5/v2/common/getKmailDashboardMsg/
- *   GET  https://kmail5.kpostindia.com/kmail5/v2/common/unOpenedMailCountBySenderID/
- *   GET  https://kmail5.kpostindia.com/kmail5/v2/common/statusOfKmailsContactsTotalCount/
- * The SPA responds by force-logging-out to `/login` with "Your session has
- * expired. Please login again." Either the standard test user lacks a KMail
- * entitlement or the KMail service rejects the token this environment issues.
+ * ── The 401 defect is resolved ──
+ * This file previously carried a deliberately-failing test: launching KMail
+ * fired four calls to `kmail5.kpostindia.com/kmail5/v2/common/*` that all
+ * returned 401, and the SPA force-logged-out to `/login`. Re-probed on
+ * 2026-08-12, KMail loads cleanly and makes no calls to that host at all — its
+ * data now comes from `localhost:8989`. The module-load test below is therefore
+ * a normal passing smoke test rather than a known-failure marker.
  *
- * Inbox / Compose / Recents journeys are intentionally absent: that UI has never
- * been reachable, so any assertion about it would be fiction. `KMailPage`
- * already carries the methods; add the specs once the 401s are resolved.
+ * Compose is not covered here: KMail has no composer. Composing is the separate
+ * "Write Mail" module — `KMailPage.startCompose()` launches it, and it deserves
+ * its own page object and specs once exercised.
  */
-import { test } from '../../src/fixtures/fixtures';
+import { test, expect } from '../../src/fixtures/fixtures';
+import { faker } from '@faker-js/faker';
 
-test.describe('KMail @smoke @kmail', () => {
+/** Per-run unique text so parallel workers can never collide. */
+function uniqueTerm(): string {
+  return `qa-${Date.now()}-${faker.string.alphanumeric(6)}`;
+}
+
+test.describe('KMail navigation @smoke @kmail', () => {
   test('KMail is offered in the Quick Access launcher', async ({ homePage }) => {
     await homePage.open();
     await homePage.expectLoaded();
@@ -30,13 +32,87 @@ test.describe('KMail @smoke @kmail', () => {
     await homePage.expectModuleAvailable('KMail');
   });
 
-  test('opening KMail from Quick Access loads the module', async ({ homePage, kmailPage }) => {
+  test('opening KMail from Quick Access loads the module', async ({
+    homePage,
+    kmailPage,
+    page,
+  }) => {
     await homePage.open();
     await homePage.expectLoaded();
 
     await kmailPage.openFromLauncher();
 
-    // Fails today via the 401 force-logout documented above.
+    await expect(page).toHaveURL(/\/kmail/i);
     await kmailPage.expectLoaded();
+    await kmailPage.expectPaneTitle();
+  });
+
+  test('KMail is also reachable from the icon rail', async ({ homePage, kmailPage }) => {
+    await homePage.open();
+    await homePage.expectLoaded();
+
+    await kmailPage.openFromRail();
+
+    await kmailPage.expectLoaded();
+  });
+});
+
+test.describe('KMail mailbox @regression @kmail', () => {
+  test('the mailbox exposes Recents, Contacts and Status of Mails tabs', async ({
+    homePage,
+    kmailPage,
+  }) => {
+    await homePage.open();
+    await kmailPage.openFromLauncher();
+    await kmailPage.expectLoaded();
+
+    await kmailPage.expectTabsAvailable();
+
+    await kmailPage.openContactsTab();
+    await kmailPage.expectContactsSummary();
+
+    await kmailPage.openStatusOfMailsTab();
+
+    await kmailPage.openRecentsTab();
+    await kmailPage.expectUnopenedMailsBadge();
+  });
+
+  test('the Recents pane reports mailbox state', async ({ homePage, kmailPage }) => {
+    await homePage.open();
+    await kmailPage.openFromLauncher();
+    await kmailPage.expectLoaded();
+
+    await kmailPage.expectUnopenedMailsBadge();
+    await kmailPage.expectStatusOfMailSummary();
+
+    // The counter must be a real number, not a placeholder.
+    expect(await kmailPage.unopenedMailCount()).toBeGreaterThanOrEqual(0);
+  });
+
+  /**
+   * Deliberately modest. KMail renders the same "No Data Found" whether the
+   * mailbox is empty or a search matched nothing, so with an empty mailbox
+   * there is no observable difference to assert on — claiming this proves
+   * filtering would be a lie. What it does prove: the search box accepts and
+   * commits a query, and the pane survives it. Strengthen this to a real
+   * filtering assertion once the test account has mail.
+   */
+  test('the mailbox search accepts a query and keeps the pane coherent', async ({
+    homePage,
+    kmailPage,
+  }) => {
+    const term = uniqueTerm();
+
+    await homePage.open();
+    await kmailPage.openFromLauncher();
+    await kmailPage.expectLoaded();
+
+    await kmailPage.searchMail(term);
+    expect(await kmailPage.currentSearchTerm()).toBe(term);
+    await kmailPage.expectNoMailsFound();
+
+    await kmailPage.clearMailSearch();
+    expect(await kmailPage.currentSearchTerm()).toBe('');
+    await kmailPage.expectUnopenedMailsBadge();
   });
 });

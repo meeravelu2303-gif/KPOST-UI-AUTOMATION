@@ -64,7 +64,7 @@ the rail itself and is the one sanctioned CSS-class selector in the codebase.
 | --- | --- |
 | `KDirectory` | ✅ Works. Routes to `/kdirectory`, no failed requests. Opens a first-run setup wizard (Country / Language / vertical) with `Continue` disabled until filled. Contact search + directory list sit **behind** that wizard. |
 | `Katchup` | ✅ Works. Routes to `/katchup`. It is a **chats & contacts** module, *not* a social feed — no post composer, no feed of posts; the whole module exposes 14 interactive elements. Recents/Contacts tabs, an "<n> Unopened Messages" counter, and a conversation search that renders "No results found". Backend 500s from `localhost:8989/v2/contacts/*` are noisy but non-fatal. Conversation threads are unverified: the test account has "My Contacts • 0". |
-| `KMail` | ❌ **Blocked.** Launching it fires four calls to `https://kmail5.kpostindia.com/kmail5/v2/common/*` that all return **401**; the SPA then force-logs-out to `/login` with "Your session has expired." Inbox / Compose / Recents have never been reachable. |
+| `KMail` | ✅ **401 resolved** (was: four calls to `kmail5.kpostindia.com` returning 401 and force-logging-out). It now loads at `/kmail` and never calls that host; data comes from `localhost:8989`. Three tabs — `Recents`, `Contacts`, `Status of Mails` — an "<n> Unopened Mails" counter, and a Status-of-Mail summary. ⚠ It raises an uncaught `TypeError: Cannot read properties of undefined (reading 'status')` in `UnopenedMailAsync`, which pops the dev overlay and blocks clicking its tabs. **KMail has no composer** — composing is the separate "Write Mail" module. |
 
 **Logout does not guard protected routes.** Logging out correctly clears
 `accessToken`, `refreshToken`, `Authuser`, and `deviceIdentity_primary`, and
@@ -129,11 +129,15 @@ launcher, rail, logout) → `HomePage` / `KMailPage` / `KDirectoryPage` /
 `KatchupPage`. `LoginPage` extends `BasePage` directly — there is no shell
 before sign-in.
 
-**When the app won't compile.** `waitForAppReady` calls `assertAppCompiled()`,
-which detects the webpack dev-server error overlay
-(`#webpack-dev-server-client-overlay`) and throws the compiler error instead of
-letting it surface as "element not found" or "iframe intercepts pointer events".
-If you see that error, fix the app — the suite is fine.
+**When the app raises an error.** `assertNoAppErrorOverlay()` detects the
+dev-server overlay (`#webpack-dev-server-client-overlay`) and throws the real
+cause — compiler message or runtime stack — instead of letting it surface as
+"element not found" or "iframe intercepts pointer events". It runs from
+`waitForAppReady` (after every navigation) and from `BasePage.click` (when a
+click fails). Note the overlay blocks **clicks but not reads**, so a partly
+broken app shows up as "assertions pass, clicks fail". The overlay is dev-only:
+in a production build the same error would instead be a silently broken
+feature, so treat anything it reports as a genuine app defect.
 
 ## Available fixtures
 
@@ -215,6 +219,11 @@ Global setup re-implements the login flow rather than reusing `LoginPage`,
 because `test.step()` is illegal outside a running test. **If you change
 `LoginPage.submitId()`, change `seedViaUi()` too.**
 
+After seeding, `verifySession()` loads the saved state into a clean context and
+requires `/home` to render the authenticated shell. Without it, a session that
+fails to propagate shows up as every authenticated test failing on a confusing
+"element not found", several layers from the cause.
+
 ## Commands
 
 ```bash
@@ -249,8 +258,10 @@ that it passes.
 
 ## Known follow-ups
 
-- **Unblock KMail** (401s from `kmail5.kpostindia.com`), then write the Inbox /
-  Compose / Recents specs against `KMailPage`'s existing methods.
+- **Fix the `UnopenedMailAsync` TypeError** in KMail — it is the last thing
+  blocking `kmail.spec.ts`'s tab-navigation test.
+- **Give "Write Mail" its own page object and specs**; it, not KMail, is where
+  composing happens.
 - **Provision a pre-onboarded (or disposable) KDirectory user** so contact search
   and the directory list can be automated past the setup wizard.
 - **Seed at least one Katchup contact** for the test user so the conversation
