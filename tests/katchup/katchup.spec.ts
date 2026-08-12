@@ -22,6 +22,7 @@
  */
 import { test, expect } from '../../src/fixtures/fixtures';
 import { faker } from '@faker-js/faker';
+import { KNOWN_APP_DEFECTS, noteKnownDefect } from '../../src/utils/known-defects';
 
 /** Per-run unique text so parallel workers can never collide. */
 function uniqueTerm(): string {
@@ -64,6 +65,8 @@ test.describe('Katchup feed @regression @katchup', () => {
     katchupPage,
   }) => {
     const term = uniqueTerm();
+    // Intermittent: passes when the contacts backend responds, fails when it 500s.
+    const defect = noteKnownDefect(KNOWN_APP_DEFECTS.KATCHUP_CONTACTS_500_UNHANDLED);
 
     await homePage.open();
     await katchupPage.openFromLauncher();
@@ -75,12 +78,10 @@ test.describe('Katchup feed @regression @katchup', () => {
     // Dynamic content: a term generated for this run alone can never match.
     await katchupPage.searchConversations(term);
 
-    // Katchup's contacts backend (localhost:8989/v2/contacts/*) intermittently
-    // 500s, and the app does not handle it — it raises an uncaught error and
-    // the results surface never renders. Check that first, so this fails with
-    // the app's own error rather than a bare "element(s) not found".
+    // Check the app did not blow up first, so this fails with the app's own
+    // error rather than a bare "element(s) not found".
     await katchupPage.expectNoAppError();
-    await katchupPage.expectNoSearchResults();
+    await katchupPage.expectNoSearchResults(defect);
 
     // ...and the feed recovers when the filter is removed.
     await katchupPage.clearConversationSearch();
@@ -91,6 +92,9 @@ test.describe('Katchup feed @regression @katchup', () => {
     homePage,
     katchupPage,
   }) => {
+    // Intermittent for the same reason as the search test above.
+    noteKnownDefect(KNOWN_APP_DEFECTS.KATCHUP_CONTACTS_500_UNHANDLED);
+
     await homePage.open();
     await katchupPage.openFromLauncher();
     await katchupPage.expectLoaded();

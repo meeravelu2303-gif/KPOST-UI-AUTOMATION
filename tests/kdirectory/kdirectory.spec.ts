@@ -18,12 +18,18 @@
  */
 import { test, expect } from '../../src/fixtures/fixtures';
 import type { DirectoryVertical } from '../../src/pages/KDirectoryPage';
+import { DIRECTORY_STORAGE_STATE, STANDARD_STORAGE_STATE } from '../../src/config/global-setup';
+import { env } from '../../src/config/env';
 import { faker } from '@faker-js/faker';
 
-const ONBOARDING_REQUIRED =
-  'This account has not completed KDirectory onboarding, and the search/list UI is behind that wizard. ' +
-  'Completing it permanently onboards the account into a vertical, so it is not done automatically. ' +
-  'Provide a pre-onboarded test user to enable this journey.';
+const ONBOARDING_REQUIRED = env.hasDirectoryUser
+  ? 'DIRECTORY_USER_EMAIL is configured, but that account still shows the KDirectory setup ' +
+    'wizard — so it is not actually pre-onboarded. Complete onboarding for it once, or point ' +
+    'the variable at an account that is already through the wizard.'
+  : 'This account has not completed KDirectory onboarding, and the search/list UI is behind ' +
+    'that wizard. Completing it permanently onboards the account into a vertical, so it is not ' +
+    'done automatically. Set DIRECTORY_USER_EMAIL / DIRECTORY_USER_PASSWORD to a pre-onboarded ' +
+    'account to enable this journey.';
 
 test.describe('KDirectory navigation @smoke @kdirectory', () => {
   test('KDirectory is offered in the Quick Access launcher', async ({ homePage }) => {
@@ -93,6 +99,12 @@ test.describe('KDirectory setup wizard @regression @kdirectory', () => {
 });
 
 test.describe('KDirectory search @regression @kdirectory', () => {
+  // Run as the pre-onboarded directory account when one is configured; otherwise
+  // stay on the standard session and let the guards below skip with a reason.
+  test.use({
+    storageState: env.hasDirectoryUser ? DIRECTORY_STORAGE_STATE : STANDARD_STORAGE_STATE,
+  });
+
   test('searching a unique term returns no matches', async ({ homePage, kdirectoryPage }) => {
     await homePage.open();
     await kdirectoryPage.openFromLauncher();
@@ -109,7 +121,7 @@ test.describe('KDirectory search @regression @kdirectory', () => {
   test('searching for the signed-in user finds them in the directory', async ({
     homePage,
     kdirectoryPage,
-    standardUser,
+    directoryUser,
   }) => {
     await homePage.open();
     await kdirectoryPage.openFromLauncher();
@@ -117,10 +129,10 @@ test.describe('KDirectory search @regression @kdirectory', () => {
 
     test.skip(await kdirectoryPage.isSetupRequired(), ONBOARDING_REQUIRED);
 
-    await kdirectoryPage.searchDirectory(standardUser.email);
+    await kdirectoryPage.searchDirectory(directoryUser.email);
 
     await kdirectoryPage.expectDirectoryListVisible();
-    await kdirectoryPage.verifyContactExists(standardUser.email);
+    await kdirectoryPage.verifyContactExists(directoryUser.email);
   });
 
   test('the directory offers filters for every vertical', async ({ homePage, kdirectoryPage }) => {

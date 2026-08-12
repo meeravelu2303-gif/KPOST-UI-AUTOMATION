@@ -17,6 +17,7 @@
  */
 import { test, expect } from '../../src/fixtures/fixtures';
 import { faker } from '@faker-js/faker';
+import { KNOWN_APP_DEFECTS, noteKnownDefect } from '../../src/utils/known-defects';
 
 /** Per-run unique text so parallel workers can never collide. */
 function uniqueTerm(): string {
@@ -62,6 +63,11 @@ test.describe('KMail mailbox @regression @kmail', () => {
     homePage,
     kmailPage,
   }) => {
+    // Fails today: KMail throws on load and the resulting overlay blocks tab
+    // clicks. AppShellPage/BasePage re-raise the app's own error, and this
+    // annotation puts the defect in the report even before that happens.
+    noteKnownDefect(KNOWN_APP_DEFECTS.KMAIL_UNOPENED_MAIL_TYPE_ERROR);
+
     await homePage.open();
     await kmailPage.openFromLauncher();
     await kmailPage.expectLoaded();

@@ -48,6 +48,29 @@ function toIntOrUndefined(value: string | undefined): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+/**
+ * Read an optional credential pair. Returns undefined when neither is set, and
+ * throws when only one is — a half-configured account is a mistake worth
+ * catching at startup rather than as a confusing login failure later.
+ */
+function optionalCredentials(emailVar: string, passwordVar: string): Credentials | undefined {
+  const email = process.env[emailVar];
+  const password = process.env[passwordVar];
+  const hasEmail = email !== undefined && email !== '';
+  const hasPassword = password !== undefined && password !== '';
+
+  if (!hasEmail && !hasPassword) return undefined;
+  if (!hasEmail || !hasPassword) {
+    throw new Error(
+      `"${emailVar}" and "${passwordVar}" must be set together — found only ` +
+        `${hasEmail ? emailVar : passwordVar}.`,
+    );
+  }
+  return { email, password };
+}
+
+const directoryUser = optionalCredentials('DIRECTORY_USER_EMAIL', 'DIRECTORY_USER_PASSWORD');
+
 export interface Credentials {
   readonly email: string;
   readonly password: string;
@@ -65,7 +88,20 @@ export interface EnvConfig {
   readonly users: {
     readonly standard: Credentials;
     readonly admin: Credentials;
+    /**
+     * OPTIONAL account that has already completed KDirectory onboarding.
+     *
+     * KDirectory's search, contact list, and filters sit behind a one-time
+     * setup wizard, and completing it permanently onboards an account into a
+     * vertical — so the shared standard user is deliberately left un-onboarded.
+     * Set DIRECTORY_USER_EMAIL / DIRECTORY_USER_PASSWORD to point the gated
+     * specs at a user that is already through it; leave unset and they skip
+     * with a reason. Both variables must be set together.
+     */
+    readonly directory?: Credentials;
   };
+  /** True when a pre-onboarded directory user is configured. */
+  readonly hasDirectoryUser: boolean;
   readonly auth: {
     /** 'api' → fast API login for storage state; 'ui' → drive the login form. */
     readonly mode: 'api' | 'ui';
@@ -94,7 +130,9 @@ export const env: EnvConfig = Object.freeze({
       email: required('ADMIN_USER_EMAIL'),
       password: required('ADMIN_USER_PASSWORD'),
     },
+    ...(directoryUser ? { directory: directoryUser } : {}),
   },
+  hasDirectoryUser: directoryUser !== undefined,
   auth: {
     // Defaults to 'ui': KPost stores its session as several localStorage keys
     // (accessToken, refreshToken, isAuthenticated, Authuser, and an encrypted

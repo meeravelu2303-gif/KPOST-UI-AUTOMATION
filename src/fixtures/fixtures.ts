@@ -39,6 +39,12 @@ interface KPostFixtures {
   standardUser: Credentials;
   adminUser: Credentials;
   /**
+   * The account the KDirectory specs run as: the pre-onboarded directory user
+   * when `DIRECTORY_USER_EMAIL` is configured, otherwise the standard user.
+   * Pair with the `storageState` those specs select.
+   */
+  directoryUser: Credentials;
+  /**
    * Seed a post via the API and get its id back. Every post seeded through this
    * fixture is automatically deleted in teardown, so tests stay atomic and
    * leave no residue in a shared backend.
@@ -102,6 +108,10 @@ export const test = base.extend<KPostFixtures, KPostWorkerFixtures>({
 
   adminUser: async ({}, use) => {
     await use(env.users.admin);
+  },
+
+  directoryUser: async ({}, use) => {
+    await use(env.users.directory ?? env.users.standard);
   },
 
   // Worker-scoped: one API login per worker, shared by all its tests.

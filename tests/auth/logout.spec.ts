@@ -6,6 +6,7 @@
  * the logout path (a sidebar action) and verify the session is cleared.
  */
 import { test, expect } from '../../src/fixtures/fixtures';
+import { KNOWN_APP_DEFECTS, noteKnownDefect } from '../../src/utils/known-defects';
 
 test.describe('Logout @regression @auth', () => {
   test('a signed-in user can log out and is returned to login', async ({ homePage, page }) => {
@@ -18,11 +19,13 @@ test.describe('Logout @regression @auth', () => {
   });
 
   test('after logout, protected routes redirect back to login', async ({ homePage, page }) => {
+    const defect = noteKnownDefect(KNOWN_APP_DEFECTS.LOGOUT_NO_ROUTE_GUARD);
+
     await homePage.open();
     await homePage.logout();
 
     // Attempting to revisit a protected route must not restore the session.
     await page.goto('/home');
-    await expect(page).toHaveURL(/\/login/i);
+    await expect(page, defect).toHaveURL(/\/login/i);
   });
 });

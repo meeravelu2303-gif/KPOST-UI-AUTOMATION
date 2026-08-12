@@ -159,9 +159,9 @@ export class KatchupPage extends AppShellPage {
     });
   }
 
-  /** Assert the "no conversations yet" empty state. */
+  /** Assert the "no conversations yet" empty state ("No Data found"). */
   async expectEmptyState(): Promise<void> {
-    await test.step('Expect the empty conversation state', async () => {
+    await test.step('Expect the "No Data found" empty conversation state', async () => {
       await expect(this.noDataState).toBeVisible();
     });
   }
@@ -188,10 +188,15 @@ export class KatchupPage extends AppShellPage {
     });
   }
 
-  /** Assert the search reported no matches. */
-  async expectNoSearchResults(): Promise<void> {
-    await test.step('Expect the no-results state', async () => {
-      await expect(this.noResultsState).toBeVisible();
+  /**
+   * Assert the search reported no matches ("No results found" — Katchup's
+   * distinct filtered-empty state, unlike KMail which reuses "No Data Found").
+   *
+   * @param message Optional context surfaced on failure, e.g. a known-defect note.
+   */
+  async expectNoSearchResults(message?: string): Promise<void> {
+    await test.step('Expect the "No results found" state', async () => {
+      await expect(this.noResultsState, message).toBeVisible();
     });
   }
 

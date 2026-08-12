@@ -192,9 +192,18 @@ export class KDirectoryPage extends AppShellPage {
     });
   }
 
-  async expectNoResults(): Promise<void> {
-    await test.step('Expect the no-results state', async () => {
-      await expect(this.noResultsState).toBeVisible();
+  /**
+   * Assert the directory reported no matches.
+   *
+   * The exact string is UNVERIFIED — the results surface is behind the setup
+   * wizard, so it has never been observed. The locator accepts the variants the
+   * rest of the app uses ("No Data Found" in KMail, "No results found" in
+   * Katchup, "No Data found" on Home) plus "No contacts". Narrow it to the real
+   * string the first time this runs against a pre-onboarded account.
+   */
+  async expectNoResults(message?: string): Promise<void> {
+    await test.step('Expect the empty directory results state ("No Data Found")', async () => {
+      await expect(this.noResultsState, message).toBeVisible();
     });
   }
 

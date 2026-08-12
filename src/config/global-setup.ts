@@ -20,12 +20,14 @@
 import { chromium, type Browser, type FullConfig } from '@playwright/test';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { env } from './env';
+import { env, type Credentials } from './env';
 import { logger } from '../utils/logger';
 import { apiLogin } from '../utils/api-helpers';
 
 export const AUTH_DIR = path.resolve('.auth');
 export const STANDARD_STORAGE_STATE = path.join(AUTH_DIR, 'standard.json');
+/** Session for the optional pre-onboarded KDirectory account (see `seedDirectoryUser`). */
+export const DIRECTORY_STORAGE_STATE = path.join(AUTH_DIR, 'directory.json');
 
 /**
  * Seed a session by calling the API and injecting the result into localStorage.
@@ -81,11 +83,14 @@ async function seedViaApi(browser: Browser): Promise<void> {
  * load the saved state into a clean context exactly as the fixtures do, open
  * `/home`, and require the authenticated shell to render.
  */
-async function verifySession(browser: Browser): Promise<void> {
+async function verifySession(
+  browser: Browser,
+  storageStatePath: string = STANDARD_STORAGE_STATE,
+): Promise<void> {
   const context = await browser.newContext({
     baseURL: env.baseURL,
     ignoreHTTPSErrors: true,
-    storageState: STANDARD_STORAGE_STATE,
+    storageState: storageStatePath,
   });
   const page = await context.newPage();
   try {
@@ -101,7 +106,7 @@ async function verifySession(browser: Browser): Promise<void> {
   } catch (error) {
     throw new Error(
       'The stored session does not authenticate. The app under test is reachable, but loading ' +
-        `${STANDARD_STORAGE_STATE} into a fresh context does not produce a signed-in /home.\n` +
+        `${storageStatePath} into a fresh context does not produce a signed-in /home.\n` +
         `Cause: ${(error as Error).message}`,
     );
   } finally {
@@ -123,7 +128,11 @@ async function verifySession(browser: Browser): Promise<void> {
  */
 const LOGIN_RENDER_TIMEOUT = 90_000;
 
-async function seedViaUi(browser: Browser): Promise<void> {
+async function seedViaUi(
+  browser: Browser,
+  credentials: Credentials = env.users.standard,
+  storageStatePath: string = STANDARD_STORAGE_STATE,
+): Promise<void> {
   const context = await browser.newContext({
     baseURL: env.baseURL,
     ignoreHTTPSErrors: true,
@@ -134,7 +143,7 @@ async function seedViaUi(browser: Browser): Promise<void> {
   // Step 1 — KPOST ID.
   const idInput = page.getByRole('textbox', { name: 'Enter KPOST ID / Mobile number' });
   await idInput.waitFor({ state: 'visible', timeout: LOGIN_RENDER_TIMEOUT });
-  await idInput.fill(env.users.standard.email);
+  await idInput.fill(credentials.email);
 
   // The domain-suggestion overlay covers Submit and cannot be dismissed, and a
   // forced click still lands on the overlay. Activate by keyboard instead —
@@ -146,12 +155,47 @@ async function seedViaUi(browser: Browser): Promise<void> {
   // Step 2 — password.
   const passwordInput = page.getByRole('textbox', { name: 'Enter your password' });
   await passwordInput.waitFor({ state: 'visible', timeout: LOGIN_RENDER_TIMEOUT });
-  await passwordInput.fill(env.users.standard.password);
+  await passwordInput.fill(credentials.password);
   await page.getByRole('button', { name: 'Login' }).click();
 
   await page.waitForURL(/\/home/i, { timeout: LOGIN_RENDER_TIMEOUT });
-  await context.storageState({ path: STANDARD_STORAGE_STATE });
+  await context.storageState({ path: storageStatePath });
   await context.close();
+}
+
+/**
+ * Seed the optional pre-onboarded KDirectory account.
+ *
+ * Opt-in: only runs when DIRECTORY_USER_EMAIL / DIRECTORY_USER_PASSWORD are set.
+ * Always uses the UI flow — this account exists precisely because it has state
+ * the API shortcut cannot reproduce.
+ *
+ * Failure here is fatal rather than a warning: setting those variables is an
+ * explicit statement that the account exists, so a broken one should be fixed,
+ * not silently downgraded into skipped tests that look like they never ran.
+ */
+async function seedDirectoryUser(browser: Browser): Promise<void> {
+  const credentials = env.users.directory;
+  if (!credentials) {
+    logger.info(
+      'Global setup: no DIRECTORY_USER_EMAIL configured — KDirectory search/filter specs ' +
+        'will skip. Set DIRECTORY_USER_EMAIL and DIRECTORY_USER_PASSWORD to enable them.',
+    );
+    return;
+  }
+
+  logger.info(`Global setup: authenticating pre-onboarded directory user (${credentials.email})`);
+  try {
+    await seedViaUi(browser, credentials, DIRECTORY_STORAGE_STATE);
+    await verifySession(browser, DIRECTORY_STORAGE_STATE);
+    logger.info(`Global setup: stored directory state at ${DIRECTORY_STORAGE_STATE}`);
+  } catch (error) {
+    throw new Error(
+      'A directory user is configured (DIRECTORY_USER_EMAIL) but could not be signed in. ' +
+        'Fix the credentials or unset both variables to fall back to skipping the gated ' +
+        `KDirectory specs.\nCause: ${(error as Error).message}`,
+    );
+  }
 }
 
 async function globalSetup(_config: FullConfig): Promise<void> {
@@ -180,6 +224,9 @@ async function globalSetup(_config: FullConfig): Promise<void> {
 
     // Never hand the suite a session we have not proven works.
     await verifySession(browser);
+
+    // Optional second account, for the KDirectory specs gated behind onboarding.
+    await seedDirectoryUser(browser);
   } catch (error) {
     logger.error('Global setup failed to authenticate. Is the KPost app running and seeded?', {
       baseURL: env.baseURL,

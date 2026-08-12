@@ -173,7 +173,7 @@ export class KMailPage extends AppShellPage {
   }
 
   async expectEmptyMailbox(): Promise<void> {
-    await test.step('Expect the empty-mailbox state', async () => {
+    await test.step('Expect the "No Data Found" empty-mailbox state', async () => {
       await expect(this.noDataState).toBeVisible();
     });
   }
