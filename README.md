@@ -58,7 +58,8 @@ KPOST-UI-AUTOMATION/
 │   │   ├── LoginPage.ts            # POM for the two-step auth screen
 │   │   ├── HomePage.ts             # POM for the /home pane (Recents/Contacts, KNews, KEcommerce)
 │   │   ├── KMailPage.ts            # POM for the mail module (Compose · Inbox · Recents)
-│   │   └── KDirectoryPage.ts       # POM for the directory module (search · list · setup wizard)
+│   │   ├── KDirectoryPage.ts       # POM for the directory module (search · list · setup wizard)
+│   │   └── KatchupPage.ts          # POM for the chats module (Recents/Contacts · search · threads)
 │   ├── fixtures/
 │   │   └── fixtures.ts             # Custom test/expect: injects page objects + session state
 │   ├── utils/

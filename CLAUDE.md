@@ -11,7 +11,7 @@ automation. Architecture is Page Object Model + custom fixtures. See `README.md`
 for the full tour, `TEST-BENCH-REPORT.md` for the state-of-the-bench analysis,
 and this file for the working contract.
 
-**Current size:** 5 page objects · 5 spec files · 20 tests · 4 browser projects
+**Current size:** 6 page objects · 6 spec files · 25 tests · 4 browser projects
 (chromium, firefox, webkit, mobile-chrome).
 
 ## The app under test — verified ground truth
@@ -63,7 +63,15 @@ the rail itself and is the one sanctioned CSS-class selector in the codebase.
 | Module | Status |
 | --- | --- |
 | `KDirectory` | ✅ Works. Routes to `/kdirectory`, no failed requests. Opens a first-run setup wizard (Country / Language / vertical) with `Continue` disabled until filled. Contact search + directory list sit **behind** that wizard. |
+| `Katchup` | ✅ Works. Routes to `/katchup`. It is a **chats & contacts** module, *not* a social feed — no post composer, no feed of posts; the whole module exposes 14 interactive elements. Recents/Contacts tabs, an "<n> Unopened Messages" counter, and a conversation search that renders "No results found". Backend 500s from `localhost:8989/v2/contacts/*` are noisy but non-fatal. Conversation threads are unverified: the test account has "My Contacts • 0". |
 | `KMail` | ❌ **Blocked.** Launching it fires four calls to `https://kmail5.kpostindia.com/kmail5/v2/common/*` that all return **401**; the SPA then force-logs-out to `/login` with "Your session has expired." Inbox / Compose / Recents have never been reachable. |
+
+**Logout does not guard protected routes.** Logging out correctly clears
+`accessToken`, `refreshToken`, `Authuser`, and `deviceIdentity_primary`, and
+lands on `/login`. But navigating back to `/home` afterwards **stays on `/home`**
+and renders a dead, shell-less page instead of redirecting to `/login`. The
+`tests/auth/logout.spec.ts` case that asserts the redirect fails for this reason
+— that is correct signal; do not weaken it.
 
 ## Golden rules
 
@@ -114,17 +122,24 @@ the rail itself and is the one sanctioned CSS-class selector in the codebase.
 | Add a domain type | `src/types/index.ts` |
 | Add tests | `tests/<area>/<name>.spec.ts` |
 
-Areas in use: `auth/`, `home/`, `kmail/`, `kdirectory/`.
+Areas in use: `auth/`, `home/`, `kmail/`, `kdirectory/`, `katchup/`.
 
 Class hierarchy: `BasePage` (framework-generic) → `AppShellPage` (KPost chrome:
-launcher, rail, logout) → `HomePage` / `KMailPage` / `KDirectoryPage`.
-`LoginPage` extends `BasePage` directly — there is no shell before sign-in.
+launcher, rail, logout) → `HomePage` / `KMailPage` / `KDirectoryPage` /
+`KatchupPage`. `LoginPage` extends `BasePage` directly — there is no shell
+before sign-in.
+
+**When the app won't compile.** `waitForAppReady` calls `assertAppCompiled()`,
+which detects the webpack dev-server error overlay
+(`#webpack-dev-server-client-overlay`) and throws the compiler error instead of
+letting it surface as "element not found" or "iframe intercepts pointer events".
+If you see that error, fix the app — the suite is fine.
 
 ## Available fixtures
 
 | Fixture | Scope | Gives you |
 | --- | --- | --- |
-| `loginPage` `homePage` `kmailPage` `kdirectoryPage` | test | Page objects bound to the current page |
+| `loginPage` `homePage` `kmailPage` `kdirectoryPage` `katchupPage` | test | Page objects bound to the current page |
 | `anonymousPage` | test | A `Page` in a fresh, logged-out context |
 | `standardUser` / `adminUser` | test | Credentials from `env` |
 | `apiAuth` | **worker** | One API login (token + cookies) reused across the worker |
@@ -238,6 +253,11 @@ that it passes.
   Compose / Recents specs against `KMailPage`'s existing methods.
 - **Provision a pre-onboarded (or disposable) KDirectory user** so contact search
   and the directory list can be automated past the setup wizard.
+- **Seed at least one Katchup contact** for the test user so the conversation
+  thread journey (`KatchupPage.openFirstConversation` / `sendMessage` /
+  `expectMessageVisible`) stops skipping and gets verified.
+- **Fix the missing post-logout route guard** (see above), then the failing
+  `logout.spec.ts` case turns green on its own.
 - **Give each worker its own account** so the suite can run in parallel again.
 - **Wire CI app provisioning**: set `KPOST_START_CMD` and the four user secrets.
 - **Raise with the product team**: the login overlay covering Submit, and the

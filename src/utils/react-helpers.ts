@@ -29,9 +29,44 @@ import { type Locator, type Page, expect } from '@playwright/test';
  */
 export async function waitForAppReady(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded');
+  await assertAppCompiled(page);
   // Flush one React commit cycle.
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+  );
+}
+
+/** The iframe webpack-dev-server injects over the page when a build fails. */
+const DEV_SERVER_OVERLAY = '#webpack-dev-server-client-overlay';
+
+/**
+ * Fail fast, and legibly, when the app under test does not compile.
+ *
+ * When the KPost dev server hits a build error it injects a full-page iframe
+ * overlay. The server still answers 200, so from the suite's point of view the
+ * app is "up" — but every locator then either times out ("element not found")
+ * or is blocked ("<iframe id=webpack-dev-server-client-overlay> intercepts
+ * pointer events"). Both readings send you hunting for a test bug that isn't
+ * there; this has already cost two debugging sessions.
+ *
+ * So we detect the overlay, pull the compiler error out of it, and raise it as
+ * the failure — turning a mystery timeout into "the app is broken, here's why".
+ */
+export async function assertAppCompiled(page: Page): Promise<void> {
+  const overlay = page.locator(DEV_SERVER_OVERLAY);
+  if (!(await overlay.isVisible().catch(() => false))) return;
+
+  const detail = await page
+    .frameLocator(DEV_SERVER_OVERLAY)
+    .locator('body')
+    .innerText()
+    .catch(() => '');
+
+  throw new Error(
+    'The application under test failed to compile — the webpack dev-server error ' +
+      'overlay is covering the page, so locators will time out or be intercepted. ' +
+      'This is an app problem, not a test problem.\n\n' +
+      (detail.trim().slice(0, 800) || '(overlay text could not be read)'),
   );
 }
 

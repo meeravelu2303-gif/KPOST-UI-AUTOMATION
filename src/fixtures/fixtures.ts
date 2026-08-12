@@ -20,6 +20,7 @@ import { LoginPage } from '../pages/LoginPage';
 import { HomePage } from '../pages/HomePage';
 import { KMailPage } from '../pages/KMailPage';
 import { KDirectoryPage } from '../pages/KDirectoryPage';
+import { KatchupPage } from '../pages/KatchupPage';
 import { STANDARD_STORAGE_STATE } from '../config/global-setup';
 import { env, type Credentials } from '../config/env';
 import { apiLogin, apiCreatePost, apiDeletePost, type AuthResult } from '../utils/api-helpers';
@@ -31,6 +32,7 @@ interface KPostFixtures {
   homePage: HomePage;
   kmailPage: KMailPage;
   kdirectoryPage: KDirectoryPage;
+  katchupPage: KatchupPage;
   /** A page in a fresh, unauthenticated context (for login/logout tests). */
   anonymousPage: Page;
   /** Convenience accessor for the seeded standard-user credentials. */
@@ -76,6 +78,10 @@ export const test = base.extend<KPostFixtures, KPostWorkerFixtures>({
 
   kdirectoryPage: async ({ page }, use) => {
     await use(new KDirectoryPage(page));
+  },
+
+  katchupPage: async ({ page }, use) => {
+    await use(new KatchupPage(page));
   },
 
   /**
