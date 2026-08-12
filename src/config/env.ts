@@ -14,9 +14,15 @@ loadDotenv();
 
 type TestEnvironment = 'local' | 'dev' | 'staging' | 'prod';
 
-/** Reads a required env var and fails loudly at startup if it is missing. */
-function required(name: string, fallback?: string): string {
-  const value = process.env[name] ?? fallback;
+/**
+ * Reads a required env var and fails loudly at startup if it is missing.
+ *
+ * Deliberately takes no fallback: a credential that silently defaults to a
+ * placeholder produces an opaque login timeout deep inside global setup instead
+ * of a readable configuration error here.
+ */
+function required(name: string): string {
+  const value = process.env[name];
   if (value === undefined || value === '') {
     throw new Error(
       `Missing required environment variable "${name}". ` +
@@ -81,17 +87,21 @@ export const env: EnvConfig = Object.freeze({
   isCI: toBool(optional('CI', 'false')),
   users: {
     standard: {
-      email: required('STANDARD_USER_EMAIL', 'standard.user@kpost.test'),
-      password: required('STANDARD_USER_PASSWORD', 'Str0ng-Passw0rd!'),
+      email: required('STANDARD_USER_EMAIL'),
+      password: required('STANDARD_USER_PASSWORD'),
     },
     admin: {
-      email: required('ADMIN_USER_EMAIL', 'admin.user@kpost.test'),
-      password: required('ADMIN_USER_PASSWORD', 'Str0ng-Admin-Passw0rd!'),
+      email: required('ADMIN_USER_EMAIL'),
+      password: required('ADMIN_USER_PASSWORD'),
     },
   },
   auth: {
-    mode: (optional('AUTH_MODE', 'api') as 'api' | 'ui'),
+    // Defaults to 'ui': KPost stores its session as several localStorage keys
+    // (accessToken, refreshToken, isAuthenticated, Authuser, and an encrypted
+    // redux-persist blob), so a single injected API token is not enough to boot
+    // the SPA authenticated. Set AUTH_MODE=api only once that contract is wired.
+    mode: optional('AUTH_MODE', 'ui') as 'api' | 'ui',
     loginPath: optional('AUTH_LOGIN_PATH', '/auth/login'),
-    tokenStorageKey: optional('AUTH_TOKEN_STORAGE_KEY', 'kpost.authToken'),
+    tokenStorageKey: optional('AUTH_TOKEN_STORAGE_KEY', 'accessToken'),
   },
 });

@@ -54,17 +54,17 @@ export abstract class BasePage {
    * Safe click. Waits for the element to be visible and stable (not animating)
    * and enabled before clicking. Playwright already does actionability checks;
    * this adds a scroll-into-view and an explicit visible wait so error messages
-   * are clearer, plus optional post-click navigation waiting.
+   * are clearer.
+   *
+   * There is deliberately no "wait for navigation" option: KPost never reaches
+   * `networkidle` (see `waitForAppReady`). To couple a click to its request,
+   * use `clickAndWaitForResponse`; to couple it to a route change, assert with
+   * `expectPath`.
    */
-  async click(locator: Locator, options: { expectNavigation?: boolean } = {}): Promise<void> {
+  async click(locator: Locator): Promise<void> {
     await locator.waitFor({ state: 'visible' });
     await locator.scrollIntoViewIfNeeded();
-    if (options.expectNavigation) {
-      // eslint-disable-next-line playwright/no-networkidle -- coarse SPA settle after a nav-triggering click; tests still use web-first assertions.
-      await Promise.all([this.page.waitForLoadState('networkidle'), locator.click()]);
-    } else {
-      await locator.click();
-    }
+    await locator.click();
   }
 
   /** Double click with the same actionability guarantees as `click`. */

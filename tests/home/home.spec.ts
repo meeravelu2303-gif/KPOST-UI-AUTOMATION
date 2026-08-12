@@ -1,9 +1,14 @@
 /**
- * Home shell & navigation.
+ * Home shell & module navigation.
  *
- * KPost lands authenticated users on `/home` — a modular super-app shell with a
- * left sidebar of modules, a top-bar global search, and Recents / Contacts tabs.
- * These tests validate the shell renders and its primary navigation works.
+ * KPost lands authenticated users on `/home`: a top bar (Quick Access launcher,
+ * voice command, account), an icon-only left rail, and a Home pane with
+ * Recents / Contacts tabs plus KNews and KEcommerce panels.
+ *
+ * Rewritten against the live app on 2026-08-12. The previous version navigated
+ * by clicking sidebar *text* and asserted a top-bar global search; neither
+ * exists — the rail is icon-only with no accessible name, and the Global Search
+ * button ships disabled. Module navigation goes through Quick Access (Ctrl+K).
  *
  * Runs authenticated via the default shared-storageState fixture.
  */
@@ -11,14 +16,19 @@ import { test, expect } from '../../src/fixtures/fixtures';
 import type { KPostModule } from '../../src/types';
 
 test.describe('Home shell @smoke @home', () => {
-  test('lands on /home and renders the module sidebar', async ({ homePage }) => {
+  test('lands on /home and renders the authenticated shell', async ({ homePage }) => {
     await homePage.open();
     await homePage.expectLoaded();
+    await homePage.expectTabsAvailable();
+  });
 
-    // Core modules visible in the sidebar rail.
+  test('the Quick Access launcher offers the core modules', async ({ homePage }) => {
+    await homePage.open();
+    await homePage.openQuickAccess();
+
     const modules: KPostModule[] = ['Home', 'KMail', 'KDirectory', 'KEcommerce', 'KNews', 'Settings'];
     for (const module of modules) {
-      await homePage.expectModuleVisible(module);
+      await homePage.expectModuleAvailable(module);
     }
   });
 
@@ -30,22 +40,28 @@ test.describe('Home shell @smoke @home', () => {
 });
 
 test.describe('Home navigation @regression @home', () => {
-  test('navigating to KMail from the sidebar leaves the home root', async ({ homePage, page }) => {
+  test('Ctrl+K opens the Quick Access launcher', async ({ homePage }) => {
     await homePage.open();
     await homePage.expectLoaded();
 
-    await homePage.navigateTo('KMail');
+    await homePage.openQuickAccessByShortcut();
+    await homePage.closeQuickAccess();
+  });
 
-    // The exact KMail route is app-specific; assert we navigated off the home
-    // root rather than hard-coding a path that may differ.
+  test('launching a module from Quick Access leaves the home root', async ({ homePage, page }) => {
+    await homePage.open();
+    await homePage.expectLoaded();
+
+    await homePage.launchModule('KDirectory');
+
     await expect(page).not.toHaveURL(/\/home\/?$/i);
   });
 
-  test('global search is available in the top bar', async ({ homePage, page }) => {
+  test('the Home pane surfaces the KNews and KEcommerce panels', async ({ homePage }) => {
     await homePage.open();
-    await homePage.globalSearchFor('test');
-    // A results surface should appear; at minimum the app must not crash back
-    // to login. Kept intentionally loose until the real results DOM is confirmed.
-    await expect(page).not.toHaveURL(/\/login/i);
+    await homePage.expectLoaded();
+
+    await homePage.expectNewsPanel();
+    await homePage.expectMarketplacePanel();
   });
 });

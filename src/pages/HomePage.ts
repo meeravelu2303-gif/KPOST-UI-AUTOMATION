@@ -1,94 +1,109 @@
 /**
- * HomePage — the authenticated KPost application shell (route: `/home`).
+ * HomePage — the authenticated KPost landing pane (route: `/home`).
  *
- * KPost is a modular super-app: a persistent left sidebar of modules (Home,
- * KMail, KDirectory, KEcommerce, KNews, Settings, …), a top bar with a global
- * search + account menu, and a Home pane with Recents / Contacts tabs.
+ * ── Verification status (probed against the live app on 2026-08-12) ──
+ * The shell chrome (top bar, Quick Access launcher, icon rail, logout) lives in
+ * `AppShellPage`; this class covers only what is specific to the Home pane:
  *
- * Sidebar entries are clickable text nodes (verified via codegen:
- * `page.getByText('KDirectory').click()`), and the top-bar global search uses a
- * "Global Search" placeholder (Ctrl+K also opens it).
+ * VERIFIED · `tablist` with `tab "Recents"` (selected by default) and `tab "Contacts"`.
+ * VERIFIED · Two `searchbox "Search"` controls render in the pane — the locator
+ *            is scoped with `.first()` to stay strict-mode safe.
+ * VERIFIED · The pane also hosts KNews (with a `button "Sync latest news"`) and
+ *            KEcommerce summary panels.
+ * VERIFIED · The signed-in user's name renders in the top bar as plain text.
+ *
+ * Superseded assumption: an earlier version of this page object navigated by
+ * clicking sidebar *text* (`getByText('KMail')`). The live rail is icon-only
+ * with no text or accessible name, so that never could have worked — module
+ * navigation now goes through `AppShellPage.launchModule()`.
  */
-import { type Locator, type Page, expect } from '@playwright/test';
-import { BasePage } from './BasePage';
-import type { KPostModule } from '../types';
+import { type Locator, type Page, expect, test } from '@playwright/test';
+import { AppShellPage } from './AppShellPage';
 
-export class HomePage extends BasePage {
+export class HomePage extends AppShellPage {
   protected readonly path = '/home';
 
-  private readonly globalSearch: Locator;
   private readonly recentsTab: Locator;
   private readonly contactsTab: Locator;
-  private readonly logoutItem: Locator;
+  private readonly paneSearch: Locator;
+  private readonly knewsPanel: Locator;
+  private readonly syncNewsButton: Locator;
+  private readonly kecommercePanel: Locator;
 
   constructor(page: Page) {
     super(page);
-    // Top-bar global search (placeholder "Global Search"; Ctrl+K also opens it).
-    this.globalSearch = page.getByPlaceholder(/global search/i);
-    // Home pane tabs (fall back to text if not exposed as ARIA tabs).
-    this.recentsTab = page
-      .getByRole('tab', { name: /recents/i })
-      .or(page.getByText(/^\s*recents\s*$/i))
-      .first();
-    this.contactsTab = page
-      .getByRole('tab', { name: /contacts/i })
-      .or(page.getByText(/^\s*contacts\s*$/i))
-      .first();
-    this.logoutItem = this.sidebarItem('Logout');
+    this.recentsTab = page.getByRole('tab', { name: /recents/i });
+    this.contactsTab = page.getByRole('tab', { name: /contacts/i });
+    // The pane renders more than one "Search" box; scope to the first.
+    this.paneSearch = page.getByRole('searchbox', { name: /search/i }).first();
+    this.knewsPanel = page.getByText(/^\s*KNews\s*$/).first();
+    this.syncNewsButton = page.getByRole('button', { name: /sync latest news/i });
+    this.kecommercePanel = page.getByText(/^\s*KEcommerce\s*$/).first();
   }
 
   async expectLoaded(): Promise<void> {
-    await this.expectPath(/\/home/i);
-    // A stable sidebar module confirms the authenticated shell rendered.
-    await this.expectVisible(this.sidebarItem('KMail'));
+    await test.step('Expect the Home pane to be loaded', async () => {
+      await this.expectPath(/\/home/i);
+      await this.expectShellVisible();
+      await expect(this.recentsTab).toBeVisible();
+    });
   }
 
-  /**
-   * Locate a sidebar module by its clickable text. Sidebar labels are unique to
-   * the rail (e.g. "KMail"), so the first text match is the nav entry.
-   */
-  private sidebarItem(module: KPostModule | 'Logout'): Locator {
-    return this.page.getByText(new RegExp(`^\\s*${module}\\s*$`, 'i')).first();
-  }
-
-  /** Assert a module is present in the sidebar. */
-  async expectModuleVisible(module: KPostModule): Promise<void> {
-    await this.expectVisible(this.sidebarItem(module));
-  }
-
-  /** Navigate to a module via the sidebar. */
-  async navigateTo(module: KPostModule): Promise<void> {
-    await this.click(this.sidebarItem(module));
-  }
-
-  /** Type into the global search and submit. */
-  async globalSearchFor(term: string): Promise<void> {
-    await this.fill(this.globalSearch, term);
-    await this.globalSearch.press('Enter');
-  }
-
-  /** Open the global search via the Ctrl+K shortcut. */
-  async openGlobalSearchShortcut(): Promise<void> {
-    await this.page.keyboard.press('Control+k');
-    await this.expectVisible(this.globalSearch);
-  }
+  // ---------------------------------------------------------------------------
+  // Recents / Contacts tabs
+  // ---------------------------------------------------------------------------
 
   async openRecentsTab(): Promise<void> {
-    await this.click(this.recentsTab);
+    await test.step('Open the Recents tab', async () => {
+      await this.click(this.recentsTab);
+      await expect(this.recentsTab).toHaveAttribute('aria-selected', 'true');
+    });
   }
 
   async openContactsTab(): Promise<void> {
-    await this.click(this.contactsTab);
+    await test.step('Open the Contacts tab', async () => {
+      await this.click(this.contactsTab);
+      await expect(this.contactsTab).toHaveAttribute('aria-selected', 'true');
+    });
   }
 
-  /** Assert the signed-in user's name is reflected in the shell (top bar). */
+  async expectTabsAvailable(): Promise<void> {
+    await test.step('Expect the Recents and Contacts tabs', async () => {
+      await expect(this.recentsTab).toBeVisible();
+      await expect(this.contactsTab).toBeVisible();
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pane content
+  // ---------------------------------------------------------------------------
+
+  /** Search within the Home pane (distinct from the top-bar global search,
+   *  which is disabled in this build). */
+  async searchPane(term: string): Promise<void> {
+    await test.step(`Search the Home pane for "${term}"`, async () => {
+      await this.fill(this.paneSearch, term);
+      await this.paneSearch.press('Enter');
+    });
+  }
+
+  async expectNewsPanel(): Promise<void> {
+    await test.step('Expect the KNews panel', async () => {
+      await expect(this.knewsPanel).toBeVisible();
+      await expect(this.syncNewsButton).toBeVisible();
+    });
+  }
+
+  async expectMarketplacePanel(): Promise<void> {
+    await test.step('Expect the KEcommerce panel', async () => {
+      await expect(this.kecommercePanel).toBeVisible();
+    });
+  }
+
+  /** Assert the signed-in user's name is reflected in the top bar. */
   async expectSignedInAs(name: string | RegExp): Promise<void> {
-    await this.expectVisible(this.page.getByText(name).first());
-  }
-
-  /** Log out via the sidebar and land back on the login screen. */
-  async logout(): Promise<void> {
-    await this.click(this.logoutItem);
-    await expect(this.page).toHaveURL(/\/login/i);
+    await test.step(`Expect to be signed in as "${name}"`, async () => {
+      await expect(this.page.getByText(name).first()).toBeVisible();
+    });
   }
 }

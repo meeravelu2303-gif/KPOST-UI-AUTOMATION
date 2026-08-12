@@ -7,6 +7,75 @@
 
 ---
 
+## 0. Update — post-remediation (same day, later)
+
+The analysis below was written from a static read of the repository. The
+framework has since been **remediated against the live running app**, which
+changed several conclusions. Read this section first; where the two disagree,
+this one wins.
+
+**What was done**
+
+- Deleted the four speculative blog page objects (`DashboardPage`,
+  `PostCreationPage`, `PostDetailPage`, `ProfilePage`) and the `tests/posts/`,
+  `tests/dashboard/`, `tests/profile/` specs — 10 files, 19 fictional tests.
+- Added `AppShellPage` (KPost chrome), `KMailPage`, and `KDirectoryPage`, plus
+  `tests/kmail/` and `tests/kdirectory/`. Every page-object method is wrapped in
+  `test.step()`.
+- Rewrote `HomePage` and `LoginPage` against observed DOM, and rewrote
+  `tests/home/home.spec.ts`, which had been asserting a UI that does not exist.
+- Hardened `env.required()` (no fallbacks) and promoted
+  `playwright/no-wait-for-timeout` + `playwright/no-skipped-test` to `error`.
+
+**What live discovery proved — corrections to §4.1**
+
+The fidelity gap was worse than reported: `HomePage` was *also* wrong. It
+navigated by clicking sidebar **text**, but KPost's left rail is icon-only
+(`div.icon-KP_03-KMail`) with no text, `aria-label`, or `title`. Real navigation
+goes through a **Quick Access** ARIA dialog (top bar or `Ctrl+K`) whose entries
+have proper accessible names. The top-bar Global Search ships **disabled**.
+
+**Four defects the bench found once it was pointed at the real app**
+
+1. **KMail is unusable** — launching it fires four calls to
+   `kmail5.kpostindia.com/kmail5/v2/common/*` that all return **401**, and the
+   SPA force-logs-out with "Your session has expired."
+2. **An undismissable overlay covers the login Submit button** — typing "@" pops
+   `ul.login__domain-list` over it. It swallows pointer events, isn't clickable,
+   and ignores Escape and blur. `{ force: true }` does not help. Fixed in-suite
+   by keyboard activation; it remains a product UX/accessibility defect.
+3. **The icon rail exposes no accessible names at all** — an accessibility
+   defect, and the sole reason a CSS selector survives anywhere in the codebase.
+4. **`waitForAppReady` was broken for this app** — it gated on `networkidle`,
+   which KPost never reaches (it polls news/Firebase/websockets forever). This
+   failed *every* navigating test. Removed.
+
+**Framework bugs fixed as a result:** the `networkidle` gate (and the matching
+`expectNavigation` option on `BasePage.click`), a 30s navigation budget too tight
+for an app whose first paint approaches it, and a global setup that duplicated
+the login flow without the overlay workaround.
+
+**Verified run status** (chromium, serial): **10 of 12 smoke tests passed.** The
+two failures were the KMail 401 above (correct signal) and one slow-first-paint
+flake, since fixed with a dedicated 45s shell-render budget.
+
+**Two new constraints discovered**
+
+- **Parallelism is broken by the shared account.** Full-parallel: 6/12 failed.
+  Serial: 8/12 — same code. KPost appears to allow one active session per
+  account. Use `--workers=1` until per-worker accounts exist.
+- **KDirectory's contact search and directory list are gated** behind a
+  first-run setup wizard (Country / Language / vertical). Completing it
+  permanently onboards the account, so it was deliberately not done.
+
+**Blocked at time of writing:** the KPost dev server does not compile —
+`SyntaxError: D:\KPOST-PROJECTS\KPOST_REACTJS_2023_V1\src\Services\ServiceURL.js:
+Identifier 'EndPoint' has already been declared.` The server returns 200 but
+serves a webpack error overlay, so no further live runs were possible. That file
+is in the application repo, not this one.
+
+---
+
 ## 1. Executive summary
 
 The test bench is a **Playwright + TypeScript UI automation framework** built on Page

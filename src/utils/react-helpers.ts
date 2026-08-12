@@ -15,20 +15,20 @@
 import { type Locator, type Page, expect } from '@playwright/test';
 
 /**
- * Wait for the app to be network- and render-idle.
+ * Wait for the app to be render-ready after a navigation.
  *
- * `networkidle` covers in-flight XHR/fetch; the extra rAF tick gives React one
- * commit cycle to flush pending state updates to the DOM after the network
- * settles. Prefer web-first assertions in tests; use this only for coarse
- * "app has settled" gates (e.g. right after navigation).
+ * Deliberately does NOT wait for `networkidle`. KPost never reaches it: the
+ * shell continuously polls news feeds, Firebase, and websocket endpoints, so a
+ * `networkidle` gate simply burns the navigation timeout and fails every test
+ * that navigates (this was measured against the live app, not assumed).
+ *
+ * What remains is cheap and correct: the document is parsed, and two rAF ticks
+ * give React a commit cycle to flush pending state into the DOM. Everything
+ * beyond that is the job of the web-first assertions in `expectLoaded()`, which
+ * auto-retry against the element the test actually cares about.
  */
 export async function waitForAppReady(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded');
-  // networkidle is intentional here: this is a coarse post-navigation "app has
-  // settled" gate for a React SPA, not an in-test wait. Web-first assertions
-  // remain the primary mechanism inside tests.
-  // eslint-disable-next-line playwright/no-networkidle
-  await page.waitForLoadState('networkidle');
   // Flush one React commit cycle.
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),

@@ -53,19 +53,47 @@ async function seedViaApi(browser: Browser): Promise<void> {
   await context.close();
 }
 
+/**
+ * Drive the real two-step login form once and persist the resulting session.
+ *
+ * This deliberately re-implements the flow instead of reusing `LoginPage`: the
+ * page objects wrap their methods in `test.step()`, which is only legal inside a
+ * running test, and global setup is not one. Keep the two in sync — in
+ * particular the Submit workaround below, which mirrors `LoginPage.submitId()`.
+ *
+ * Timeouts are deliberately generous. Measured against the live app, the login
+ * screen's first paint can exceed the 30s Playwright default, and global setup
+ * failing here takes the entire run down with it.
+ */
+const LOGIN_RENDER_TIMEOUT = 90_000;
+
 async function seedViaUi(browser: Browser): Promise<void> {
   const context = await browser.newContext({
     baseURL: env.baseURL,
     ignoreHTTPSErrors: true,
   });
   const page = await context.newPage();
-  await page.goto('/login', { waitUntil: 'domcontentloaded' });
-  // KPost two-step login: KPOST ID → Submit → password → Login.
-  await page.getByRole('textbox', { name: 'Enter KPOST ID / Mobile number' }).fill(env.users.standard.email);
-  await page.getByRole('button', { name: 'Submit' }).click();
-  await page.getByRole('textbox', { name: 'Enter your password' }).fill(env.users.standard.password);
+  await page.goto('/login', { waitUntil: 'domcontentloaded', timeout: LOGIN_RENDER_TIMEOUT });
+
+  // Step 1 — KPOST ID.
+  const idInput = page.getByRole('textbox', { name: 'Enter KPOST ID / Mobile number' });
+  await idInput.waitFor({ state: 'visible', timeout: LOGIN_RENDER_TIMEOUT });
+  await idInput.fill(env.users.standard.email);
+
+  // The domain-suggestion overlay covers Submit and cannot be dismissed, and a
+  // forced click still lands on the overlay. Activate by keyboard instead —
+  // see the long-form explanation in `LoginPage.submitId()`.
+  const submitButton = page.getByRole('button', { name: 'Submit' });
+  await submitButton.focus();
+  await page.keyboard.press('Enter');
+
+  // Step 2 — password.
+  const passwordInput = page.getByRole('textbox', { name: 'Enter your password' });
+  await passwordInput.waitFor({ state: 'visible', timeout: LOGIN_RENDER_TIMEOUT });
+  await passwordInput.fill(env.users.standard.password);
   await page.getByRole('button', { name: 'Login' }).click();
-  await page.waitForURL(/\/home/i, { timeout: 30_000 });
+
+  await page.waitForURL(/\/home/i, { timeout: LOGIN_RENDER_TIMEOUT });
   await context.storageState({ path: STANDARD_STORAGE_STATE });
   await context.close();
 }

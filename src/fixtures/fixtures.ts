@@ -2,8 +2,8 @@
  * Custom Playwright fixtures — the composition root of the framework.
  *
  * This is where page objects are injected and session state is managed so that
- * individual spec files stay declarative: a test just asks for `loginPage` or
- * `dashboardPage` and receives a ready-to-use instance bound to the correct
+ * individual spec files stay declarative: a test just asks for `homePage` or
+ * `kdirectoryPage` and receives a ready-to-use instance bound to the correct
  * (authenticated or anonymous) browser context.
  *
  * Two worlds are exposed:
@@ -18,10 +18,8 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
 import { HomePage } from '../pages/HomePage';
-import { DashboardPage } from '../pages/DashboardPage';
-import { PostCreationPage } from '../pages/PostCreationPage';
-import { PostDetailPage } from '../pages/PostDetailPage';
-import { ProfilePage } from '../pages/ProfilePage';
+import { KMailPage } from '../pages/KMailPage';
+import { KDirectoryPage } from '../pages/KDirectoryPage';
 import { STANDARD_STORAGE_STATE } from '../config/global-setup';
 import { env, type Credentials } from '../config/env';
 import { apiLogin, apiCreatePost, apiDeletePost, type AuthResult } from '../utils/api-helpers';
@@ -31,10 +29,8 @@ import type { Post } from '../types';
 interface KPostFixtures {
   loginPage: LoginPage;
   homePage: HomePage;
-  dashboardPage: DashboardPage;
-  postCreationPage: PostCreationPage;
-  postDetailPage: PostDetailPage;
-  profilePage: ProfilePage;
+  kmailPage: KMailPage;
+  kdirectoryPage: KDirectoryPage;
   /** A page in a fresh, unauthenticated context (for login/logout tests). */
   anonymousPage: Page;
   /** Convenience accessor for the seeded standard-user credentials. */
@@ -44,6 +40,11 @@ interface KPostFixtures {
    * Seed a post via the API and get its id back. Every post seeded through this
    * fixture is automatically deleted in teardown, so tests stay atomic and
    * leave no residue in a shared backend.
+   *
+   * LEGACY: no current spec uses this — it targets the blog-style `/posts` API
+   * that the removed scaffold specs assumed. Kept as the worked example of the
+   * arrange-via-API / assert-via-UI pattern to copy when a real KPost module
+   * API is wired up.
    */
   seedPost: (post: Post) => Promise<string>;
 }
@@ -69,20 +70,12 @@ export const test = base.extend<KPostFixtures, KPostWorkerFixtures>({
     await use(new HomePage(page));
   },
 
-  dashboardPage: async ({ page }, use) => {
-    await use(new DashboardPage(page));
+  kmailPage: async ({ page }, use) => {
+    await use(new KMailPage(page));
   },
 
-  postCreationPage: async ({ page }, use) => {
-    await use(new PostCreationPage(page));
-  },
-
-  postDetailPage: async ({ page }, use) => {
-    await use(new PostDetailPage(page));
-  },
-
-  profilePage: async ({ page }, use) => {
-    await use(new ProfilePage(page));
+  kdirectoryPage: async ({ page }, use) => {
+    await use(new KDirectoryPage(page));
   },
 
   /**

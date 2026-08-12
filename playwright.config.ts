@@ -16,9 +16,12 @@ import { env } from './src/config/env';
 export default defineConfig({
   testDir: './tests',
 
-  /* Per-test timeout and assertion timeout. React apps can re-render slowly,
-     so we give assertions a generous-but-bounded window. */
-  timeout: 60_000,
+  /* Per-test timeout and assertion timeout. Measured against the live app:
+     KPost's initial document load routinely approaches 30s (large bundle plus
+     third-party news/Firebase fetches, several of which fail slowly), so the
+     navigation budget below is 60s and the per-test budget accommodates a full
+     navigation plus the work that follows it. */
+  timeout: 120_000,
   expect: {
     timeout: 10_000,
   },
@@ -60,7 +63,7 @@ export default defineConfig({
 
     /* Sensible interaction defaults. */
     actionTimeout: 15_000,
-    navigationTimeout: 30_000,
+    navigationTimeout: 60_000,
 
     headless: env.headless,
     launchOptions: {
