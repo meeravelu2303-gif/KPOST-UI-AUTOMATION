@@ -42,6 +42,8 @@ const RAIL_ICON_CLASS: Partial<Record<KPostModule, string>> = {
   KBooking: 'icon-KP_88-Bus',
   KEcommerce: 'icon-KP_14-KCommerce',
   KNews: 'icon-KP_08-KNews',
+  // Present in the rail but dead: clicking it does not navigate (KPOST-KPAY-001).
+  KPay: 'icon-KP_12-KWallet',
   Settings: 'icon-KP_15-Settings',
 };
 

@@ -14,6 +14,12 @@ export type UserRole = 'standard' | 'admin';
  *
  * The left icon rail exposes a near-identical set, minus "KDOC" and
  * "My Profile" — see `AppShellPage.RAIL_ICON_CLASS`.
+ *
+ * "KPay" is the odd one out: it appears in the rail (`icon-KP_12-KWallet`) and
+ * in the rail's expanded labels, but is NOT offered by the launcher, its rail
+ * entry does not navigate, and every plausible route (`/kpay`, `/kwallet`,
+ * `/pay`) renders the 404 page — the module is not implemented yet
+ * (KPOST-KPAY-001). It is typed here so `KPayPage` can cover that contract.
  */
 export type KPostModule =
   | 'Home'
@@ -27,6 +33,7 @@ export type KPostModule =
   | 'KDOC'
   | 'KEcommerce'
   | 'KNews'
+  | 'KPay'
   | 'Settings'
   | 'My Profile';
 

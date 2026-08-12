@@ -11,7 +11,7 @@ automation. Architecture is Page Object Model + custom fixtures. See `README.md`
 for the full tour, `TEST-BENCH-REPORT.md` for the state-of-the-bench analysis,
 and this file for the working contract.
 
-**Current size:** 8 page objects · 8 spec files · 47 tests · 4 browser projects
+**Current size:** 10 page objects · 10 spec files · 59 tests · 4 browser projects
 (chromium, firefox, webkit, mobile-chrome).
 
 ## The app under test — verified ground truth
@@ -68,6 +68,8 @@ the rail itself and is the one sanctioned CSS-class selector in the codebase.
 | `Write Mail` | ✅ Works (composer, route `/writemail`, renders alongside the KMail pane). Fields ship **no labels**: To is `input[name="to"]`, Subject `input.toInput`, body a Quill `div.ql-editor`, and Send an icon-only `button.post_button_size` with no accessible name. The To field **normalises on blur** (full native address → bare KPOST ID) while still submitting the full address — never press Enter to "commit" it, that can eat the recipient. Send fires `POST /v2/sentMail/postMail/`. **Self-sends are rejected** (400 "Duplicate IDs are present in ToAddress…" → alert "Some Error Occurred!"), so the success path needs `MAIL_RECIPIENT` (a second account); the backend also intermittently 401s valid sessions (KPOST-KMAIL-002). |
 | `Settings` | ✅ Works. Routes to `/settings` (rail: `icon-KP_15-Settings`). Six sections as **plain clickable text, not ARIA tabs** — Profile Creation, Digital Card Settings, General Settings, KMail Settings, KNews Settings, My Account — and selecting one does not change the URL. Renders the signed-in user's name + avatar + "Add Cover Photo". **No toggles, switches, or theme controls exist**; the app's only preference control is the header language `<select>` (English/Russian/Japanese), modelled on `AppShellPage`. Only KNews Settings carries its own Submit; "My Account" opened directly renders no controls. |
 | `KEcommerce` | ✅ Works. Routes to **`/e-commerce`** (hyphenated — not `/kecommerce`); rail: `icon-KP_14-KCommerce`. Zero failed requests. The catalog is ~60 merchant-logo images with alt text (amazon, flipkart, myntra, …) and **nothing else** — no heading, search, filters, or cart; the only interactive elements are the shell header controls. ⚠ The catalog **intermittently renders empty** with no error state (KPOST-KECOM-001) — the two catalog tests annotate this. |
+| `KNews` | ✅ Works. Routes to `/knews` (launcher + rail `icon-KP_08-KNews`). A real news UI: `banner` with `textbox "Search headlines…"` and a "⟳" refresh, a `region "Breaking news ticker"`, a `complementary` sidebar of category buttons (All News / World, publishers, languages, topics — names carry emoji, match on text; there is **no "Top Stories"**), and feed cards as real links inside `main`. Content comes via public RSS bridges (corsproxy.io, rss2json.com) that 503/422/**429** — when they fail the feed renders **empty with no error state** (KPOST-KNEWS-001); the ticker is content-dependent and legitimately absent when there is no breaking feed (that test skips, not fails). |
+| `KPay` | ❌ **Not implemented.** The rail shows `icon-KP_12-KWallet` (expanded label "KPay") but clicking it navigates nowhere, the launcher does not offer it, and `/kpay`, `/kwallet`, `/pay` all render the 404 page. Registered as KPOST-KPAY-001 (a dead nav entry is broken UX). `tests/kpay/` pins this contract and is **designed to fail the day KPay ships** — rebuild `KPayPage` from the real DOM then; do not pre-write balance/history locators. |
 
 ### Reporting known app defects
 
@@ -139,12 +141,20 @@ and renders a dead, shell-less page instead of redirecting to `/login`. The
 | Add tests | `tests/<area>/<name>.spec.ts` |
 
 Areas in use: `auth/`, `home/`, `kmail/`, `kdirectory/`, `katchup/`,
-`settings/`, `kecommerce/`.
+`settings/`, `kecommerce/`, `knews/`, `kpay/`.
 
 Class hierarchy: `BasePage` (framework-generic) → `AppShellPage` (KPost chrome:
 launcher, rail, language picker, logout) → `HomePage` / `KMailPage` /
-`KDirectoryPage` / `KatchupPage` / `SettingsPage` / `KEcommercePage`.
-`LoginPage` extends `BasePage` directly — there is no shell before sign-in.
+`KDirectoryPage` / `KatchupPage` / `SettingsPage` / `KEcommercePage` /
+`KNewsPage` / `KPayPage`. `LoginPage` extends `BasePage` directly — there is no
+shell before sign-in.
+
+**Defect annotations reach every reporter.** `noteKnownDefect()` lands in the
+HTML report (annotation on the test page), `results.json`
+(`annotations[].type === 'known-app-defect'`), and `junit.xml`
+(`<property name="known-app-defect" value="KPOST-… — …"/>`) — verified for all
+registered defects. CI systems that parse JUnit get the defect ID and summary
+without any extra wiring.
 
 **When the app raises an error.** `assertNoAppErrorOverlay()` detects the
 dev-server overlay (`#webpack-dev-server-client-overlay`) and throws the real
@@ -160,7 +170,7 @@ feature, so treat anything it reports as a genuine app defect.
 
 | Fixture | Scope | Gives you |
 | --- | --- | --- |
-| `loginPage` `homePage` `kmailPage` `kdirectoryPage` `katchupPage` `settingsPage` `kecommercePage` | test | Page objects bound to the current page |
+| `loginPage` `homePage` `kmailPage` `kdirectoryPage` `katchupPage` `settingsPage` `kecommercePage` `knewsPage` `kpayPage` | test | Page objects bound to the current page |
 | `directoryUser` | test | The pre-onboarded directory account when configured, else the standard user |
 | `anonymousPage` | test | A `Page` in a fresh, logged-out context |
 | `standardUser` / `adminUser` | test | Credentials from `env` |
@@ -316,5 +326,5 @@ that it passes.
   `data/posts.json`, the `Post` types, `apiCreatePost`/`apiDeletePost`, and the
   `seedPost` fixture are unused by any spec.
 - **Not yet covered**: accessibility scans, visual regression, file
-  upload/download, and the other KPost modules (Katchup, Kall, KCloud, KBooking,
-  KDOC, KEcommerce, KNews, KPay, Settings, My Profile).
+  upload/download, and the remaining KPost modules (Kall, KCloud, KBooking,
+  KDOC, Broadcast, My Profile).

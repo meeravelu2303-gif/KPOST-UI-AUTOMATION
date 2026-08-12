@@ -88,6 +88,36 @@ export const KNOWN_APP_DEFECTS = {
     expected: 'The catalog renders its merchant tiles on every load, or shows an error state.',
   },
 
+  /** KNews renders an empty feed with no error state when its sources fail. */
+  KNEWS_EMPTY_FEED_ON_SOURCE_FAILURE: {
+    id: 'KPOST-KNEWS-001',
+    summary: 'KNews renders an empty feed with no error state when its news bridges fail.',
+    evidence:
+      'KNews fetches content through public RSS bridges (corsproxy.io, rss2json.com) ' +
+      'that intermittently answer 503/422/429 — rss2json rate-limiting (429) was ' +
+      'captured directly. When that happens the main feed renders zero cards and no ' +
+      'error or empty-state message (page snapshot: a main landmark with no links), ' +
+      'minutes after the same feed rendered normally. A news feed with nothing in it ' +
+      'and no explanation is indistinguishable from a broken app to the user.',
+    expected:
+      'When the news sources fail, the feed shows an error/retry state instead of ' +
+      'silently rendering nothing.',
+  },
+
+  /** The rail advertises a KPay module that does not exist. */
+  KPAY_DEAD_NAV_ENTRY: {
+    id: 'KPOST-KPAY-001',
+    summary: 'The icon rail shows a KPay entry that silently does nothing.',
+    evidence:
+      'The rail renders div.icon-KP_12-KWallet and its expanded labels include ' +
+      '"KPay", but clicking either leaves the URL unchanged, Quick Access does not ' +
+      'offer the module, and /kpay, /kwallet, and /pay all render the 404 page ' +
+      '(verified 2026-08-13). A visible nav entry that silently does nothing is ' +
+      'broken UX from the user’s side, whatever the roadmap says — it should be ' +
+      'hidden, disabled with an affordance, or wired up.',
+    expected: 'Rail entries either navigate somewhere or are visibly disabled/absent.',
+  },
+
   /** Logging out does not guard protected routes. */
   LOGOUT_NO_ROUTE_GUARD: {
     id: 'KPOST-AUTH-001',

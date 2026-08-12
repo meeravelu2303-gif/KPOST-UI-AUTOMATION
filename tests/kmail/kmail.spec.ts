@@ -145,6 +145,12 @@ test.describe('KMail compose & send @regression @kmail', () => {
       'No MAIL_RECIPIENT configured. KPost rejects self-sends ("Duplicate IDs are present in ' +
         'ToAddress…"), so the success path needs a second KPOST account to address.',
     );
+    test.skip(
+      env.mail.recipient === env.users.standard.email,
+      'MAIL_RECIPIENT is set to the SAME account as STANDARD_USER_EMAIL, which the backend ' +
+        'is guaranteed to reject as a self-send ("Duplicate IDs are present in ToAddress…"). ' +
+        'Point it at a different KPOST account to unlock this journey.',
+    );
 
     const subject = `QA automated mail ${Date.now()}-${faker.string.alphanumeric(4)}`;
 
