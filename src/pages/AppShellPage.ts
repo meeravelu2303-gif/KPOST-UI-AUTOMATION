@@ -23,7 +23,8 @@
  */
 import { type Locator, type Page, expect, test } from '@playwright/test';
 import { BasePage } from './BasePage';
-import { assertNoAppErrorOverlay } from '../utils/react-helpers';
+import { assertNoAppErrorOverlay, dismissRuntimeErrorOverlay } from '../utils/react-helpers';
+import { logger } from '../utils/logger';
 import type { KPostModule } from '../types';
 
 /** CSS classes of the icon-only left rail, read off the live DOM. Last-resort
@@ -63,6 +64,7 @@ export abstract class AppShellPage extends BasePage {
   protected readonly quickAccessDialog: Locator;
   protected readonly quickAccessSearch: Locator;
   protected readonly sessionExpiredAlert: Locator;
+  protected readonly languageSelect: Locator;
   private readonly logoutRailIcon: Locator;
   private readonly logoutConfirmButton: Locator;
 
@@ -76,6 +78,8 @@ export abstract class AppShellPage extends BasePage {
     this.quickAccessDialog = page.getByRole('dialog').filter({ hasText: 'Quick Access' }).first();
     this.quickAccessSearch = this.quickAccessDialog.getByPlaceholder(/search pages, contacts, messages/i);
     this.sessionExpiredAlert = page.getByRole('alert').filter({ hasText: /session has expired/i });
+    // The app's only real preference control (English / Russian / Japanese).
+    this.languageSelect = page.locator('select').first();
     this.logoutRailIcon = page.locator(`div[class*="${LOGOUT_RAIL_ICON}"]`).first();
     this.logoutConfirmButton = page.getByRole('button', { name: /^\s*log ?out\s*$/i });
   }
@@ -155,6 +159,39 @@ export abstract class AppShellPage extends BasePage {
   }
 
   // ---------------------------------------------------------------------------
+  // Language — the app's only user preference control
+  // ---------------------------------------------------------------------------
+  // It lives in the shell header, not in Settings: that module ships no
+  // toggles, switches, or theme controls at all (verified 2026-08-12).
+
+  /** The currently selected interface language. */
+  async currentLanguage(): Promise<string> {
+    return test.step('Read the selected language', async () => this.languageSelect.inputValue());
+  }
+
+  /** Assert the language picker offers the expected set of languages. */
+  async expectLanguageOptions(expected: readonly string[]): Promise<void> {
+    await test.step(`Expect the language options ${expected.join(', ')}`, async () => {
+      await expect(this.languageSelect).toBeVisible();
+      for (const language of expected) {
+        await expect(this.languageSelect.getByRole('option', { name: language })).toHaveCount(1);
+      }
+    });
+  }
+
+  /**
+   * Change the interface language.
+   *
+   * Mutates a persisted preference (`i18nextLng`), so a test that calls this
+   * owns restoring it — or should run in its own context.
+   */
+  async selectLanguage(language: string): Promise<void> {
+    await test.step(`Select the "${language}" language`, async () => {
+      await this.languageSelect.selectOption({ label: language });
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Session
   // ---------------------------------------------------------------------------
 
@@ -175,6 +212,27 @@ export abstract class AppShellPage extends BasePage {
   async expectNoAppError(): Promise<void> {
     await test.step('Expect no app error', async () => {
       await assertNoAppErrorOverlay(this.page);
+    });
+  }
+
+  /**
+   * Dismiss a dev-only runtime-error overlay the way a user would, so the test
+   * can verify the module that is actually functioning underneath. Refuses to
+   * dismiss compile failures (throws — there is nothing to test behind those).
+   *
+   * The dismissed error does not vanish: it is logged and attached to the test
+   * as a `dismissed-app-error` annotation. Callers should pair this with
+   * `noteKnownDefect()` so the report tells the whole story.
+   */
+  async dismissDevErrorOverlay(): Promise<void> {
+    await test.step('Dismiss the dev-only runtime error overlay, if present', async () => {
+      const detail = await dismissRuntimeErrorOverlay(this.page);
+      if (detail !== null) {
+        logger.warn('Dismissed a dev-server runtime error overlay', {
+          error: detail.split('\n').slice(0, 4).join(' | '),
+        });
+        test.info().annotations.push({ type: 'dismissed-app-error', description: detail });
+      }
     });
   }
 

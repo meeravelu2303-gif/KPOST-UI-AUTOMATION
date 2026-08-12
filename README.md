@@ -59,7 +59,9 @@ KPOST-UI-AUTOMATION/
 │   │   ├── HomePage.ts             # POM for the /home pane (Recents/Contacts, KNews, KEcommerce)
 │   │   ├── KMailPage.ts            # POM for the mail module (Compose · Inbox · Recents)
 │   │   ├── KDirectoryPage.ts       # POM for the directory module (search · list · setup wizard)
-│   │   └── KatchupPage.ts          # POM for the chats module (Recents/Contacts · search · threads)
+│   │   ├── KatchupPage.ts          # POM for the chats module (Recents/Contacts · search · threads)
+│   │   ├── SettingsPage.ts         # POM for the settings module (sections · profile · language)
+│   │   └── KEcommercePage.ts       # POM for the marketplace module (merchant catalog)
 │   ├── fixtures/
 │   │   └── fixtures.ts             # Custom test/expect: injects page objects + session state
 │   ├── utils/

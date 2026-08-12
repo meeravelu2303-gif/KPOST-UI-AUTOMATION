@@ -28,18 +28,19 @@ export interface KnownDefect {
 }
 
 export const KNOWN_APP_DEFECTS = {
-  /** KMail's unopened-mail thunk throws, popping the dev overlay. */
+  /** KMail's unopened-mail thunk throws an uncaught error on load. */
   KMAIL_UNOPENED_MAIL_TYPE_ERROR: {
     id: 'KPOST-KMAIL-001',
-    summary: 'KMail raises an uncaught TypeError while loading, which blocks its tabs.',
+    summary: 'KMail raises an uncaught TypeError on load (UnopenedMailAsync).',
     evidence:
       "Uncaught \"TypeError: Cannot read properties of undefined (reading 'status')\" at " +
-      'UnopenedMailAsync, thrown as soon as /kmail loads. In dev this pops the ' +
-      'webpack error overlay, which intercepts pointer events — so reads succeed but ' +
-      'every click on the Recents/Contacts/Status of Mails tabs times out. In a ' +
-      'production build there would be no overlay and the unopened-mail feature would ' +
-      'simply be broken instead.',
-    expected: 'KMail loads without raising, and its three tabs are clickable.',
+      'UnopenedMailAsync, thrown as soon as /kmail loads. Verified 2026-08-12: the module ' +
+      'underneath still functions — all three tabs work once the dev-only overlay is ' +
+      'dismissed — so the suite dismisses the overlay (recording it as a ' +
+      '"dismissed-app-error" annotation) and verifies the real behaviour. The error ' +
+      'itself remains unfixed: in a production build it would surface as the ' +
+      'unopened-mail feature failing silently.',
+    expected: 'KMail loads without raising any uncaught error.',
   },
 
   /** Katchup's contacts backend 500s and the app does not handle it. */

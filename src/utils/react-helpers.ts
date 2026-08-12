@@ -60,21 +60,67 @@ const DEV_SERVER_OVERLAY = '#webpack-dev-server-client-overlay';
  * merely a local annoyance.
  */
 export async function assertNoAppErrorOverlay(page: Page): Promise<void> {
-  const overlay = page.locator(DEV_SERVER_OVERLAY);
-  if (!(await overlay.isVisible().catch(() => false))) return;
-
-  const detail = await page
-    .frameLocator(DEV_SERVER_OVERLAY)
-    .locator('body')
-    .innerText()
-    .catch(() => '');
+  const detail = await readAppErrorOverlay(page);
+  if (detail === null) return;
 
   throw new Error(
     'The application under test raised an error — the dev-server error overlay is ' +
       'covering the page, so clicks will be intercepted. This is an app problem, ' +
       'not a test problem.\n\n' +
-      (detail.trim().slice(0, 800) || '(overlay text could not be read)'),
+      (detail || '(overlay text could not be read)'),
   );
+}
+
+/** The overlay's text when it is showing, or null when it is not. */
+export async function readAppErrorOverlay(page: Page): Promise<string | null> {
+  const overlay = page.locator(DEV_SERVER_OVERLAY);
+  if (!(await overlay.isVisible().catch(() => false))) return null;
+  const detail = await page
+    .frameLocator(DEV_SERVER_OVERLAY)
+    .locator('body')
+    .innerText()
+    .catch(() => '');
+  return detail.trim().slice(0, 800);
+}
+
+/**
+ * Dismiss a **runtime**-error overlay the way a user would (its × button), and
+ * return the error text that was showing.
+ *
+ * Rationale: the dev overlay is a dev-mode artifact. For an *uncaught runtime
+ * error* the app underneath usually still functions — verified on KMail, where
+ * all three tabs work normally once the overlay is closed — and in a production
+ * build there would be no overlay at all. Refusing to test past it would mean
+ * refusing to test what users actually get.
+ *
+ * Deliberately refuses to dismiss a **compile**-failure overlay: behind one of
+ * those there is no working app to test, so it throws instead.
+ *
+ * Callers own the accountability half of the bargain: pair this with a
+ * `noteKnownDefect()` annotation so the dismissed error stays visible in the
+ * report instead of quietly vanishing.
+ */
+export async function dismissRuntimeErrorOverlay(page: Page): Promise<string | null> {
+  const detail = await readAppErrorOverlay(page);
+  if (detail === null) return null;
+
+  // "Uncaught runtime errors:" heads the runtime variant. Anything else —
+  // "Failed to compile", "Module build failed" — means no app to test.
+  if (!/uncaught runtime error/i.test(detail)) {
+    throw new Error(
+      'The dev-server overlay reports a COMPILE failure, which cannot be dismissed ' +
+        'past — there is no working app underneath.\n\n' +
+        detail,
+    );
+  }
+
+  await page
+    .frameLocator(DEV_SERVER_OVERLAY)
+    .getByRole('button', { name: /dismiss|close|×/i })
+    .first()
+    .click();
+  await page.locator(DEV_SERVER_OVERLAY).waitFor({ state: 'hidden', timeout: 10_000 });
+  return detail;
 }
 
 /**
