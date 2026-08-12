@@ -54,9 +54,14 @@ KPOST-UI-AUTOMATION/
 │   │   └── global-setup.ts         # One-time UI login → persisted storageState
 │   ├── pages/
 │   │   ├── BasePage.ts             # Abstract base: safe click/fill, waits, dynamic assertions
-│   │   ├── LoginPage.ts            # POM for the auth screen
-│   │   ├── DashboardPage.ts        # POM for the authenticated feed/home
-│   │   └── PostCreationPage.ts     # POM for the compose/editor screen
+│   │   ├── AppShellPage.ts         # KPost chrome: Quick Access launcher, icon rail, logout
+│   │   ├── LoginPage.ts            # POM for the two-step auth screen
+│   │   ├── HomePage.ts             # POM for the /home pane (Recents/Contacts, KNews, KEcommerce)
+│   │   ├── KMailPage.ts            # POM for the mail module (Compose · Inbox · Recents)
+│   │   ├── KDirectoryPage.ts       # POM for the directory module (search · list · setup wizard)
+│   │   ├── KatchupPage.ts          # POM for the chats module (Recents/Contacts · search · threads)
+│   │   ├── SettingsPage.ts         # POM for the settings module (sections · profile · language)
+│   │   └── KEcommercePage.ts       # POM for the marketplace module (merchant catalog)
 │   ├── fixtures/
 │   │   └── fixtures.ts             # Custom test/expect: injects page objects + session state
 │   ├── utils/
@@ -75,9 +80,14 @@ KPOST-UI-AUTOMATION/
 │   │   ├── login.spec.ts           # Valid/invalid/validation (data-driven), runs logged-out
 │   │   └── logout.spec.ts          # Logout + protected-route redirect
 │   ├── dashboard/
-│   │   └── dashboard.spec.ts       # Shell + empty/populated/error feed via route mocking
-│   └── posts/
-│       └── post-creation.spec.ts   # Happy path + validation + boundary + API-failure edge cases
+│   │   ├── dashboard.spec.ts       # Shell + empty/populated/error feed via route mocking
+│   │   └── feed-search.spec.ts     # Search filtering + pagination via query-keyed mocking
+│   ├── posts/
+│   │   ├── post-creation.spec.ts   # Happy path + validation + boundary + API-failure edge cases
+│   │   └── post-management.spec.ts # Edit + delete (confirm dialog) via route mocking
+│   └── profile/
+│       └── profile.spec.ts         # View + update display name + validation
+├── CLAUDE.md                       # Repo working contract (conventions, how to add tests/POMs)
 ├── .auth/                          # (gitignored) persisted storageState from globalSetup
 ├── playwright-report/              # (gitignored) HTML report
 ├── test-results/                   # (gitignored) traces, videos, screenshots, JSON/JUnit
@@ -181,7 +191,7 @@ No `waitForTimeout`/hard sleeps anywhere — every wait is condition-based.
 
 `src/fixtures/fixtures.ts` extends Playwright's `test` to:
 
-- Inject ready-to-use page objects (`loginPage`, `dashboardPage`, `postCreationPage`).
+- Inject ready-to-use page objects (`loginPage`, `homePage`, `kmailPage`, `kdirectoryPage`).
 - Apply the **shared authenticated `storageState`** by default, so most tests
   start logged in (fast, and login is off the critical path).
 - Provide an **`anonymousPage`** (fresh, logged-out context) and let auth specs
@@ -236,15 +246,13 @@ must pre-exist (those come from `env`).
 
 ```ts
 import { test, expect } from '../../src/fixtures/fixtures';
-import { buildPost } from '../../src/data/factories/postFactory';
 
-test('drafts save without publishing @posts', async ({ dashboardPage, postCreationPage }) => {
-  const post = buildPost();                 // unique data → parallel-safe
+test('opens the directory module @smoke @kdirectory', async ({ homePage, kdirectoryPage }) => {
+  await homePage.open();                    // starts authenticated (shared state)
+  await homePage.expectLoaded();
 
-  await dashboardPage.open();               // starts authenticated (shared state)
-  await dashboardPage.goToCreatePost();
-  await postCreationPage.composePost(post); // POM encapsulates all locators
-  await postCreationPage.saveDraft();       // helper asserts the toast for you
+  await kdirectoryPage.openFromLauncher();  // Quick Access — the accessible nav path
+  await kdirectoryPage.expectLoaded();      // POM encapsulates all locators
 });
 ```
 

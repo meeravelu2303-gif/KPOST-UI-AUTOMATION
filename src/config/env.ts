@@ -14,9 +14,15 @@ loadDotenv();
 
 type TestEnvironment = 'local' | 'dev' | 'staging' | 'prod';
 
-/** Reads a required env var and fails loudly at startup if it is missing. */
-function required(name: string, fallback?: string): string {
-  const value = process.env[name] ?? fallback;
+/**
+ * Reads a required env var and fails loudly at startup if it is missing.
+ *
+ * Deliberately takes no fallback: a credential that silently defaults to a
+ * placeholder produces an opaque login timeout deep inside global setup instead
+ * of a readable configuration error here.
+ */
+function required(name: string): string {
+  const value = process.env[name];
   if (value === undefined || value === '') {
     throw new Error(
       `Missing required environment variable "${name}". ` +
@@ -42,6 +48,29 @@ function toIntOrUndefined(value: string | undefined): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+/**
+ * Read an optional credential pair. Returns undefined when neither is set, and
+ * throws when only one is — a half-configured account is a mistake worth
+ * catching at startup rather than as a confusing login failure later.
+ */
+function optionalCredentials(emailVar: string, passwordVar: string): Credentials | undefined {
+  const email = process.env[emailVar];
+  const password = process.env[passwordVar];
+  const hasEmail = email !== undefined && email !== '';
+  const hasPassword = password !== undefined && password !== '';
+
+  if (!hasEmail && !hasPassword) return undefined;
+  if (!hasEmail || !hasPassword) {
+    throw new Error(
+      `"${emailVar}" and "${passwordVar}" must be set together — found only ` +
+        `${hasEmail ? emailVar : passwordVar}.`,
+    );
+  }
+  return { email, password };
+}
+
+const directoryUser = optionalCredentials('DIRECTORY_USER_EMAIL', 'DIRECTORY_USER_PASSWORD');
+
 export interface Credentials {
   readonly email: string;
   readonly password: string;
@@ -59,6 +88,37 @@ export interface EnvConfig {
   readonly users: {
     readonly standard: Credentials;
     readonly admin: Credentials;
+    /**
+     * OPTIONAL account that has already completed KDirectory onboarding.
+     *
+     * KDirectory's search, contact list, and filters sit behind a one-time
+     * setup wizard, and completing it permanently onboards an account into a
+     * vertical — so the shared standard user is deliberately left un-onboarded.
+     * Set DIRECTORY_USER_EMAIL / DIRECTORY_USER_PASSWORD to point the gated
+     * specs at a user that is already through it; leave unset and they skip
+     * with a reason. Both variables must be set together.
+     */
+    readonly directory?: Credentials;
+  };
+  /** True when a pre-onboarded directory user is configured. */
+  readonly hasDirectoryUser: boolean;
+  readonly mail: {
+    /**
+     * OPTIONAL recipient for the KMail send E2E test. The backend rejects
+     * sending to yourself ("Duplicate IDs are present in ToAddress, CopyList,
+     * or ConfidentialCopyList" — the app auto-appends the sender), so the full
+     * success path needs a second KPOST account. Unset → the send test verifies
+     * the compose/send mechanics against that documented self-send rejection.
+     */
+    readonly recipient: string | undefined;
+  };
+  readonly auth: {
+    /** 'api' → fast API login for storage state; 'ui' → drive the login form. */
+    readonly mode: 'api' | 'ui';
+    /** Login endpoint path, relative to apiBaseURL (POST email+password). */
+    readonly loginPath: string;
+    /** localStorage key the SPA reads the auth token from (token-based apps). */
+    readonly tokenStorageKey: string;
   };
 }
 
@@ -73,12 +133,26 @@ export const env: EnvConfig = Object.freeze({
   isCI: toBool(optional('CI', 'false')),
   users: {
     standard: {
-      email: required('STANDARD_USER_EMAIL', 'standard.user@kpost.test'),
-      password: required('STANDARD_USER_PASSWORD', 'Str0ng-Passw0rd!'),
+      email: required('STANDARD_USER_EMAIL'),
+      password: required('STANDARD_USER_PASSWORD'),
     },
     admin: {
-      email: required('ADMIN_USER_EMAIL', 'admin.user@kpost.test'),
-      password: required('ADMIN_USER_PASSWORD', 'Str0ng-Admin-Passw0rd!'),
+      email: required('ADMIN_USER_EMAIL'),
+      password: required('ADMIN_USER_PASSWORD'),
     },
+    ...(directoryUser ? { directory: directoryUser } : {}),
+  },
+  hasDirectoryUser: directoryUser !== undefined,
+  mail: {
+    recipient: process.env.MAIL_RECIPIENT || undefined,
+  },
+  auth: {
+    // Defaults to 'ui': KPost stores its session as several localStorage keys
+    // (accessToken, refreshToken, isAuthenticated, Authuser, and an encrypted
+    // redux-persist blob), so a single injected API token is not enough to boot
+    // the SPA authenticated. Set AUTH_MODE=api only once that contract is wired.
+    mode: optional('AUTH_MODE', 'ui') as 'api' | 'ui',
+    loginPath: optional('AUTH_LOGIN_PATH', '/auth/login'),
+    tokenStorageKey: optional('AUTH_TOKEN_STORAGE_KEY', 'accessToken'),
   },
 });

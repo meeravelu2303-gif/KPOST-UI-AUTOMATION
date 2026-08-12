@@ -5,6 +5,9 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  # Nightly full regression across all browsers.
+  schedule:
+    - cron: '0 2 * * *'
   # Allow manual runs from the Actions tab.
   workflow_dispatch:
 
@@ -13,58 +16,151 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# ---------------------------------------------------------------------------
+# Required repository/organization secrets (Settings → Secrets → Actions):
+#   STANDARD_USER_EMAIL     seeded standard test-user email
+#   STANDARD_USER_PASSWORD  seeded standard test-user password
+#   ADMIN_USER_EMAIL        seeded admin test-user email
+#   ADMIN_USER_PASSWORD     seeded admin test-user password
+# Never hard-code credentials in this file.
+# ---------------------------------------------------------------------------
+env:
+  BASE_URL: https://localhost:3000
+
 jobs:
-  e2e:
-    name: E2E (${{ matrix.project }})
+  # -------------------------------------------------------------------------
+  # Stage 1 — Static quality gate. Fast, no browsers, no app. Fails the build
+  # early on type errors or lint violations before spending CI on browsers.
+  # -------------------------------------------------------------------------
+  static:
+    name: Typecheck & Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
 
-    # Shard the cross-browser matrix so each browser runs in its own job in
-    # parallel — faster feedback and isolated, readable failures.
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [chromium, firefox, webkit]
-
+  # -------------------------------------------------------------------------
+  # Stage 2 — Smoke. Chromium only, @smoke-tagged tests. Gives PRs a fast
+  # pass/fail signal on the critical happy paths before the full matrix runs.
+  # -------------------------------------------------------------------------
+  smoke:
+    name: Smoke (chromium)
+    needs: static
+    # Skip (rather than fail) when no app-boot command is configured, so the PR
+    # stays green on the checks that can run without a live app. Set the
+    # KPOST_START_CMD repository variable to enable this job.
+    if: ${{ vars.KPOST_START_CMD != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       CI: 'true'
       TEST_ENV: ci
-      BASE_URL: https://localhost:3000
-      # Pull credentials from repository/organization secrets — never hard-code.
       STANDARD_USER_EMAIL: ${{ secrets.STANDARD_USER_EMAIL }}
       STANDARD_USER_PASSWORD: ${{ secrets.STANDARD_USER_PASSWORD }}
       ADMIN_USER_EMAIL: ${{ secrets.ADMIN_USER_EMAIL }}
       ADMIN_USER_PASSWORD: ${{ secrets.ADMIN_USER_PASSWORD }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
       - name: Install dependencies
-        # Use `npm ci` once a package-lock.json is committed (recommended for
-        # reproducible builds); `npm install` keeps this scaffold runnable
-        # before the lock file is generated/committed.
         run: npm install --no-audit --no-fund
+      - name: Install Playwright (chromium)
+        run: npx playwright install --with-deps chromium
 
-      - name: Install Playwright browsers
+      - name: Start KPost app
+        # The exact boot command is repo-specific, so it's supplied as a
+        # repository variable (Settings → Secrets and variables → Actions →
+        # Variables → KPOST_START_CMD) rather than hard-coded here. Examples:
+        #   docker compose up -d --wait kpost-web
+        #   npm --prefix ./app ci && (npm --prefix ./app run start &)
+        #   docker run -d -p 3000:3000 ghcr.io/your-org/kpost-web:latest
+        env:
+          KPOST_START_CMD: ${{ vars.KPOST_START_CMD }}
+        run: |
+          if [ -z "$KPOST_START_CMD" ]; then
+            echo "::error::KPOST_START_CMD is not set. Add a repository variable" \
+                 "with the command that boots KPost on ${BASE_URL}."
+            exit 1
+          fi
+          echo "Starting KPost app: $KPOST_START_CMD"
+          bash -c "$KPOST_START_CMD"
+
+      - name: Wait for app to be ready
+        run: npx wait-on --timeout 120000 --interval 2000 "${BASE_URL}"
+
+      - name: Run smoke tests
+        run: npx playwright test --project=chromium --grep @smoke
+
+      - name: Upload report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-smoke
+          path: playwright-report/
+          retention-days: 7
+
+  # -------------------------------------------------------------------------
+  # Stage 3 — Full cross-browser regression. Sharded per browser so failures
+  # are isolated and readable. Runs only after smoke passes.
+  # -------------------------------------------------------------------------
+  e2e:
+    name: E2E (${{ matrix.project }})
+    needs: smoke
+    # Same gate as smoke — runs only once KPOST_START_CMD is configured.
+    if: ${{ vars.KPOST_START_CMD != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, firefox, webkit]
+    env:
+      CI: 'true'
+      TEST_ENV: ci
+      STANDARD_USER_EMAIL: ${{ secrets.STANDARD_USER_EMAIL }}
+      STANDARD_USER_PASSWORD: ${{ secrets.STANDARD_USER_PASSWORD }}
+      ADMIN_USER_EMAIL: ${{ secrets.ADMIN_USER_EMAIL }}
+      ADMIN_USER_PASSWORD: ${{ secrets.ADMIN_USER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install Playwright (${{ matrix.project }})
         run: npx playwright install --with-deps ${{ matrix.project }}
 
-      # The KPost React app must be reachable at BASE_URL before tests run.
-      # Replace this step with however your app is provisioned in CI, e.g.:
-      #   - start a container:  docker compose up -d kpost-web
-      #   - or build + serve:   npm --prefix ../kpost-web ci && npm --prefix ../kpost-web start &
-      # Then wait for it to be ready.
-      - name: Start KPost app (placeholder)
+      - name: Start KPost app
+        # See the smoke job — boot command comes from the KPOST_START_CMD repo
+        # variable rather than being hard-coded here.
+        env:
+          KPOST_START_CMD: ${{ vars.KPOST_START_CMD }}
         run: |
-          echo "Provision the KPost app so it serves on ${BASE_URL}."
-          echo "Example wait-for-ready:"
-          echo "  npx wait-on --timeout 120000 ${BASE_URL}"
+          if [ -z "$KPOST_START_CMD" ]; then
+            echo "::error::KPOST_START_CMD is not set. Add a repository variable" \
+                 "with the command that boots KPost on ${BASE_URL}."
+            exit 1
+          fi
+          echo "Starting KPost app: $KPOST_START_CMD"
+          bash -c "$KPOST_START_CMD"
+
+      - name: Wait for app to be ready
+        run: npx wait-on --timeout 120000 --interval 2000 "${BASE_URL}"
 
       - name: Run Playwright tests
         run: npx playwright test --project=${{ matrix.project }}

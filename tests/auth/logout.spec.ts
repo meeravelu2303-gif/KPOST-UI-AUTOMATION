@@ -2,27 +2,30 @@
  * Logout journey.
  *
  * Uses the default authenticated fixture (shared storageState), so the test
- * starts already logged in and only needs to exercise the logout path and
- * verify the session is genuinely cleared.
+ * starts already logged in on the KPost home shell and only needs to exercise
+ * the logout path (a sidebar action) and verify the session is cleared.
  */
 import { test, expect } from '../../src/fixtures/fixtures';
+import { KNOWN_APP_DEFECTS, noteKnownDefect } from '../../src/utils/known-defects';
 
 test.describe('Logout @regression @auth', () => {
-  test('a signed-in user can log out and is returned to login', async ({ dashboardPage, page }) => {
-    await dashboardPage.open();
-    await dashboardPage.expectLoaded();
+  test('a signed-in user can log out and is returned to login', async ({ homePage, page }) => {
+    await homePage.open();
+    await homePage.expectLoaded();
 
-    await dashboardPage.logout();
+    await homePage.logout();
 
     await expect(page).toHaveURL(/\/login/i);
   });
 
-  test('after logout, protected routes redirect back to login', async ({ dashboardPage, page }) => {
-    await dashboardPage.open();
-    await dashboardPage.logout();
+  test('after logout, protected routes redirect back to login', async ({ homePage, page }) => {
+    const defect = noteKnownDefect(KNOWN_APP_DEFECTS.LOGOUT_NO_ROUTE_GUARD);
+
+    await homePage.open();
+    await homePage.logout();
 
     // Attempting to revisit a protected route must not restore the session.
-    await page.goto('/dashboard');
-    await expect(page).toHaveURL(/\/login/i);
+    await page.goto('/home');
+    await expect(page, defect).toHaveURL(/\/login/i);
   });
 });

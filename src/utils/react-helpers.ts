@@ -15,24 +15,112 @@
 import { type Locator, type Page, expect } from '@playwright/test';
 
 /**
- * Wait for the app to be network- and render-idle.
+ * Wait for the app to be render-ready after a navigation.
  *
- * `networkidle` covers in-flight XHR/fetch; the extra rAF tick gives React one
- * commit cycle to flush pending state updates to the DOM after the network
- * settles. Prefer web-first assertions in tests; use this only for coarse
- * "app has settled" gates (e.g. right after navigation).
+ * Deliberately does NOT wait for `networkidle`. KPost never reaches it: the
+ * shell continuously polls news feeds, Firebase, and websocket endpoints, so a
+ * `networkidle` gate simply burns the navigation timeout and fails every test
+ * that navigates (this was measured against the live app, not assumed).
+ *
+ * What remains is cheap and correct: the document is parsed, and two rAF ticks
+ * give React a commit cycle to flush pending state into the DOM. Everything
+ * beyond that is the job of the web-first assertions in `expectLoaded()`, which
+ * auto-retry against the element the test actually cares about.
  */
 export async function waitForAppReady(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded');
-  // networkidle is intentional here: this is a coarse post-navigation "app has
-  // settled" gate for a React SPA, not an in-test wait. Web-first assertions
-  // remain the primary mechanism inside tests.
-  // eslint-disable-next-line playwright/no-networkidle
-  await page.waitForLoadState('networkidle');
+  await assertNoAppErrorOverlay(page);
   // Flush one React commit cycle.
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   );
+}
+
+/** The iframe the dev server injects over the page to report an app error. */
+const DEV_SERVER_OVERLAY = '#webpack-dev-server-client-overlay';
+
+/**
+ * Fail fast, and legibly, when the app under test has raised an error.
+ *
+ * The KPost dev server injects a full-page iframe overlay for **both** build
+ * failures and uncaught runtime errors. The server still answers 200, so from
+ * the suite's point of view the app is "up" — but the overlay then blocks
+ * pointer events, and any click reports the useless
+ * "<iframe id=webpack-dev-server-client-overlay> intercepts pointer events".
+ * Reads (assertions, `fill`) still work, which makes the failure look
+ * arbitrary: some tests pass, the ones that click do not.
+ *
+ * That reading has already cost several debugging sessions, so we detect the
+ * overlay, pull the real error out of it — compiler message or runtime stack —
+ * and raise that instead.
+ *
+ * Note this overlay is a **dev-mode** artifact. Against a production build it
+ * would not exist, and the underlying error would instead surface as a silently
+ * broken feature — so treat anything this reports as a genuine app defect, not
+ * merely a local annoyance.
+ */
+export async function assertNoAppErrorOverlay(page: Page): Promise<void> {
+  const detail = await readAppErrorOverlay(page);
+  if (detail === null) return;
+
+  throw new Error(
+    'The application under test raised an error — the dev-server error overlay is ' +
+      'covering the page, so clicks will be intercepted. This is an app problem, ' +
+      'not a test problem.\n\n' +
+      (detail || '(overlay text could not be read)'),
+  );
+}
+
+/** The overlay's text when it is showing, or null when it is not. */
+export async function readAppErrorOverlay(page: Page): Promise<string | null> {
+  const overlay = page.locator(DEV_SERVER_OVERLAY);
+  if (!(await overlay.isVisible().catch(() => false))) return null;
+  const detail = await page
+    .frameLocator(DEV_SERVER_OVERLAY)
+    .locator('body')
+    .innerText()
+    .catch(() => '');
+  return detail.trim().slice(0, 800);
+}
+
+/**
+ * Dismiss a **runtime**-error overlay the way a user would (its × button), and
+ * return the error text that was showing.
+ *
+ * Rationale: the dev overlay is a dev-mode artifact. For an *uncaught runtime
+ * error* the app underneath usually still functions — verified on KMail, where
+ * all three tabs work normally once the overlay is closed — and in a production
+ * build there would be no overlay at all. Refusing to test past it would mean
+ * refusing to test what users actually get.
+ *
+ * Deliberately refuses to dismiss a **compile**-failure overlay: behind one of
+ * those there is no working app to test, so it throws instead.
+ *
+ * Callers own the accountability half of the bargain: pair this with a
+ * `noteKnownDefect()` annotation so the dismissed error stays visible in the
+ * report instead of quietly vanishing.
+ */
+export async function dismissRuntimeErrorOverlay(page: Page): Promise<string | null> {
+  const detail = await readAppErrorOverlay(page);
+  if (detail === null) return null;
+
+  // "Uncaught runtime errors:" heads the runtime variant. Anything else —
+  // "Failed to compile", "Module build failed" — means no app to test.
+  if (!/uncaught runtime error/i.test(detail)) {
+    throw new Error(
+      'The dev-server overlay reports a COMPILE failure, which cannot be dismissed ' +
+        'past — there is no working app underneath.\n\n' +
+        detail,
+    );
+  }
+
+  await page
+    .frameLocator(DEV_SERVER_OVERLAY)
+    .getByRole('button', { name: /dismiss|close|×/i })
+    .first()
+    .click();
+  await page.locator(DEV_SERVER_OVERLAY).waitFor({ state: 'hidden', timeout: 10_000 });
+  return detail;
 }
 
 /**

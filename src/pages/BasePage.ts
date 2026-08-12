@@ -15,7 +15,7 @@
  */
 import { type Locator, type Page, expect, type Response } from '@playwright/test';
 import { logger } from '../utils/logger';
-import { waitForAppReady } from '../utils/react-helpers';
+import { waitForAppReady, assertNoAppErrorOverlay } from '../utils/react-helpers';
 
 export abstract class BasePage {
   /** Sub-classes set this so `open()` and `isLoaded()` know where they live. */
@@ -54,16 +54,25 @@ export abstract class BasePage {
    * Safe click. Waits for the element to be visible and stable (not animating)
    * and enabled before clicking. Playwright already does actionability checks;
    * this adds a scroll-into-view and an explicit visible wait so error messages
-   * are clearer, plus optional post-click navigation waiting.
+   * are clearer.
+   *
+   * There is deliberately no "wait for navigation" option: KPost never reaches
+   * `networkidle` (see `waitForAppReady`). To couple a click to its request,
+   * use `clickAndWaitForResponse`; to couple it to a route change, assert with
+   * `expectPath`.
    */
-  async click(locator: Locator, options: { expectNavigation?: boolean } = {}): Promise<void> {
+  async click(locator: Locator): Promise<void> {
     await locator.waitFor({ state: 'visible' });
     await locator.scrollIntoViewIfNeeded();
-    if (options.expectNavigation) {
-      // eslint-disable-next-line playwright/no-networkidle -- coarse SPA settle after a nav-triggering click; tests still use web-first assertions.
-      await Promise.all([this.page.waitForLoadState('networkidle'), locator.click()]);
-    } else {
+    try {
       await locator.click();
+    } catch (error) {
+      // A failed click is the usual way an app error surfaces: the dev-server
+      // overlay covers the page and "intercepts pointer events", while reads
+      // keep working. Re-raise the real error if that is what happened;
+      // otherwise the original failure stands.
+      await assertNoAppErrorOverlay(this.page);
+      throw error;
     }
   }
 
@@ -149,6 +158,10 @@ export abstract class BasePage {
     await expect(locator).toContainText(expected);
   }
 
+  async expectValue(locator: Locator, expected: string | RegExp): Promise<void> {
+    await expect(locator).toHaveValue(expected);
+  }
+
   async expectEnabled(locator: Locator): Promise<void> {
     await expect(locator).toBeEnabled();
   }
@@ -173,9 +186,15 @@ export abstract class BasePage {
     locator: Locator,
     urlPattern: string | RegExp,
     predicate: (res: Response) => boolean = (res) => res.ok(),
+    options: { timeout?: number } = {},
   ): Promise<Response> {
     const [response] = await Promise.all([
-      this.page.waitForResponse((res) => matchesUrl(res.url(), urlPattern) && predicate(res)),
+      this.page.waitForResponse(
+        (res) => matchesUrl(res.url(), urlPattern) && predicate(res),
+        // Default to 30s: the KPost backends routinely take longer than the
+        // 15s actionTimeout that would otherwise apply to this wait.
+        { timeout: options.timeout ?? 30_000 },
+      ),
       this.click(locator),
     ]);
     return response;
