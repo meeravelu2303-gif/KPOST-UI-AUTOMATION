@@ -15,6 +15,7 @@
  */
 import { test } from '../../src/fixtures/fixtures';
 import { SAMPLE_MERCHANTS } from '../../src/pages/KEcommercePage';
+import { KNOWN_APP_DEFECTS, noteKnownDefect } from '../../src/utils/known-defects';
 
 test.describe('KEcommerce @smoke @kecommerce', () => {
   test('KEcommerce is offered in the Quick Access launcher', async ({ homePage }) => {
@@ -47,6 +48,9 @@ test.describe('KEcommerce @smoke @kecommerce', () => {
   });
 
   test('the merchant catalog renders', async ({ homePage, kecommercePage }) => {
+    // Intermittent: the catalog sometimes renders as an empty pane (KECOM-001).
+    noteKnownDefect(KNOWN_APP_DEFECTS.KECOMMERCE_CATALOG_INTERMITTENTLY_EMPTY);
+
     await homePage.open();
     await kecommercePage.navigateToKEcommerce();
     await kecommercePage.expectLoaded();
@@ -58,6 +62,9 @@ test.describe('KEcommerce @smoke @kecommerce', () => {
 
 test.describe('KEcommerce catalog @regression @kecommerce', () => {
   test('each sampled merchant tile is visible', async ({ homePage, kecommercePage }) => {
+    // Intermittent: the catalog sometimes renders as an empty pane (KECOM-001).
+    noteKnownDefect(KNOWN_APP_DEFECTS.KECOMMERCE_CATALOG_INTERMITTENTLY_EMPTY);
+
     await homePage.open();
     await kecommercePage.navigateToKEcommerce();
     await kecommercePage.expectLoaded();

@@ -73,6 +73,21 @@ export const KNOWN_APP_DEFECTS = {
     expected: 'A valid session is authenticated consistently; postMail never 401s it.',
   },
 
+  /** The KEcommerce merchant catalog intermittently renders empty. */
+  KECOMMERCE_CATALOG_INTERMITTENTLY_EMPTY: {
+    id: 'KPOST-KECOM-001',
+    summary: 'The KEcommerce catalog intermittently renders as an empty pane.',
+    evidence:
+      'During a full serial suite run on 2026-08-12, /e-commerce rendered only the ' +
+      'app-shell header with zero merchant tiles (the page snapshot shows an empty ' +
+      'content area), failing both catalog tests; the same tests pass 5/5 when the ' +
+      'spec runs in isolation, before and after. The module shows no error state ' +
+      'when this happens — the catalog is simply missing. Root cause not yet ' +
+      'captured (no failed catalog request has been observed; the tile source may ' +
+      'be a data call that fails silently or an app-side race under longer sessions).',
+    expected: 'The catalog renders its merchant tiles on every load, or shows an error state.',
+  },
+
   /** Logging out does not guard protected routes. */
   LOGOUT_NO_ROUTE_GUARD: {
     id: 'KPOST-AUTH-001',
