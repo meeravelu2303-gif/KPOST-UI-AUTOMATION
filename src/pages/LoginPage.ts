@@ -62,11 +62,11 @@ export class LoginPage extends BasePage {
     return response.status();
   }
 
-  /** Submit and expect to land on the dashboard (happy path). */
+  /** Submit and expect to land on the authenticated home shell (happy path). */
   async loginExpectingSuccess(credentials: Credentials): Promise<void> {
     await this.enterCredentials(credentials.email, credentials.password);
     await this.click(this.submitButton);
-    await expect(this.page).toHaveURL(/\/dashboard/i);
+    await expect(this.page).toHaveURL(/\/home/i);
   }
 
   /** Assert the inline error banner shows the expected message. */

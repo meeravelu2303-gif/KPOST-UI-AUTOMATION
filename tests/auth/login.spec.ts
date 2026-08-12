@@ -10,7 +10,7 @@
  */
 import { test, expect } from '../../src/fixtures/fixtures';
 import { LoginPage } from '../../src/pages/LoginPage';
-import { DashboardPage } from '../../src/pages/DashboardPage';
+import { HomePage } from '../../src/pages/HomePage';
 import invalidData from '../../src/data/users.json';
 
 // Run this file logged-out.
@@ -19,15 +19,15 @@ test.use({ storageState: { cookies: [], origins: [] } });
 test.describe('Login @smoke @auth', () => {
   test('a standard user can log in with valid credentials', async ({ page, standardUser }) => {
     const loginPage = new LoginPage(page);
-    const dashboardPage = new DashboardPage(page);
+    const homePage = new HomePage(page);
 
     await loginPage.open();
     await loginPage.expectLoaded();
 
     await loginPage.loginExpectingSuccess(standardUser);
 
-    await dashboardPage.expectLoaded();
-    await expect(page).toHaveURL(/\/dashboard/i);
+    await homePage.expectLoaded();
+    await expect(page).toHaveURL(/\/home/i);
   });
 
   test('the submit button is disabled until the form is filled', async ({ page }) => {
@@ -62,7 +62,7 @@ test.describe('Login — invalid credentials @regression @auth', () => {
       }
 
       await loginPage.expectError(scenario.expectedError);
-      await expect(page).not.toHaveURL(/\/dashboard/i);
+      await expect(page).not.toHaveURL(/\/home/i);
     });
   }
 });

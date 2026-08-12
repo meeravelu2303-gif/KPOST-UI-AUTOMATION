@@ -6,6 +6,26 @@
 
 export type UserRole = 'standard' | 'admin';
 
+/**
+ * KPost is a modular super-app. These are the left-sidebar modules as they
+ * appear in the running application (verified from the live UI). Used to drive
+ * type-safe sidebar navigation from the HomePage.
+ */
+export type KPostModule =
+  | 'Home'
+  | 'Write Mail'
+  | 'KMail'
+  | 'Katchup'
+  | 'Kall'
+  | 'KDirectory'
+  | 'KCloud'
+  | 'KBooking'
+  | 'KEcommerce'
+  | 'KPay'
+  | 'KNews'
+  | 'Broadcast'
+  | 'Settings';
+
 export interface User {
   email: string;
   password: string;

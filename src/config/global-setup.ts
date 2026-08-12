@@ -63,7 +63,7 @@ async function seedViaUi(browser: Browser): Promise<void> {
   await page.getByLabel(/email/i).fill(env.users.standard.email);
   await page.getByLabel(/password/i).fill(env.users.standard.password);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
-  await page.waitForURL(/\/dashboard/i, { timeout: 30_000 });
+  await page.waitForURL(/\/home/i, { timeout: 30_000 });
   await context.storageState({ path: STANDARD_STORAGE_STATE });
   await context.close();
 }

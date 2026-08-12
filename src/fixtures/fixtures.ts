@@ -17,6 +17,7 @@
  */
 import { test as base, expect, type Page } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
+import { HomePage } from '../pages/HomePage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { PostCreationPage } from '../pages/PostCreationPage';
 import { PostDetailPage } from '../pages/PostDetailPage';
@@ -29,6 +30,7 @@ import type { Post } from '../types';
 /** Test-scoped fixtures — recreated per test. */
 interface KPostFixtures {
   loginPage: LoginPage;
+  homePage: HomePage;
   dashboardPage: DashboardPage;
   postCreationPage: PostCreationPage;
   postDetailPage: PostDetailPage;
@@ -61,6 +63,10 @@ export const test = base.extend<KPostFixtures, KPostWorkerFixtures>({
 
   loginPage: async ({ page }, use) => {
     await use(new LoginPage(page));
+  },
+
+  homePage: async ({ page }, use) => {
+    await use(new HomePage(page));
   },
 
   dashboardPage: async ({ page }, use) => {
