@@ -58,6 +58,21 @@ export const KNOWN_APP_DEFECTS = {
       'still reports its result state.',
   },
 
+  /** The mail backend intermittently 401s requests from a valid session. */
+  KMAIL_POSTMAIL_INTERMITTENT_401: {
+    id: 'KPOST-KMAIL-002',
+    summary: 'POST /v2/sentMail/postMail/ intermittently returns 401 for a valid session.',
+    evidence:
+      'The same self-send, from a freshly logged-in session with an unexpired token ' +
+      '(24h JWT lifetime), is sometimes answered 400 "Duplicate IDs are present in ' +
+      'ToAddress, CopyList, or ConfidentialCopyList" (the expected validation) and ' +
+      'sometimes 401 — observed switching between the two across consecutive runs on ' +
+      '2026-08-12. A backend that authenticates a session for one request and rejects ' +
+      'it for the next is failing auth intermittently; the historical KMail 401 ' +
+      'force-logout (now fixed) was the same category of fault.',
+    expected: 'A valid session is authenticated consistently; postMail never 401s it.',
+  },
+
   /** Logging out does not guard protected routes. */
   LOGOUT_NO_ROUTE_GUARD: {
     id: 'KPOST-AUTH-001',

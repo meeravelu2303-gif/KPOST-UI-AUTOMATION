@@ -11,7 +11,7 @@ automation. Architecture is Page Object Model + custom fixtures. See `README.md`
 for the full tour, `TEST-BENCH-REPORT.md` for the state-of-the-bench analysis,
 and this file for the working contract.
 
-**Current size:** 8 page objects · 8 spec files · 45 tests · 4 browser projects
+**Current size:** 8 page objects · 8 spec files · 47 tests · 4 browser projects
 (chromium, firefox, webkit, mobile-chrome).
 
 ## The app under test — verified ground truth
@@ -64,7 +64,8 @@ the rail itself and is the one sanctioned CSS-class selector in the codebase.
 | --- | --- |
 | `KDirectory` | ✅ Works. Routes to `/kdirectory`, no failed requests. Opens a first-run setup wizard (Country / Language / vertical) with `Continue` disabled until filled. Contact search + directory list sit **behind** that wizard. |
 | `Katchup` | ✅ Works. Routes to `/katchup`. It is a **chats & contacts** module, *not* a social feed — no post composer, no feed of posts; the whole module exposes 14 interactive elements. Recents/Contacts tabs, an "<n> Unopened Messages" counter, and a conversation search that renders "No results found". Backend 500s from `localhost:8989/v2/contacts/*` are noisy but non-fatal. Conversation threads are unverified: the test account has "My Contacts • 0". |
-| `KMail` | ✅ **Works** (the earlier 401 force-logout is fixed; it never calls `kmail5.kpostindia.com` now — data comes from `localhost:8989`). Loads at `/kmail`. Three tabs — `Recents`, `Contacts`, `Status of Mails` — all verified clickable; an "<n> Unopened Mails" counter and a Status-of-Mail summary. ⚠ Still raises an uncaught `TypeError … (reading 'status')` in `UnopenedMailAsync` on load (KPOST-KMAIL-001); the suite dismisses the resulting dev-only overlay via `dismissDevErrorOverlay()` and tests the working module beneath, recording the error as a `dismissed-app-error` annotation. **KMail has no composer** — composing is the separate "Write Mail" module. |
+| `KMail` | ✅ **Works** (the earlier 401 force-logout is fixed; it never calls `kmail5.kpostindia.com` now — data comes from `localhost:8989`). Loads at `/kmail`. Three tabs — `Recents`, `Contacts`, `Status of Mails` — all verified clickable; an "<n> Unopened Mails" counter and a Status-of-Mail summary. ⚠ Still raises an uncaught `TypeError … (reading 'status')` in `UnopenedMailAsync` on load (KPOST-KMAIL-001) — and it **refires on the pane's refresh cycle**, so `KMailPage.send()` re-dismisses the overlay right before its click; the suite records each dismissal as a `dismissed-app-error` annotation. **KMail has no composer** — composing is the separate "Write Mail" module. |
+| `Write Mail` | ✅ Works (composer, route `/writemail`, renders alongside the KMail pane). Fields ship **no labels**: To is `input[name="to"]`, Subject `input.toInput`, body a Quill `div.ql-editor`, and Send an icon-only `button.post_button_size` with no accessible name. The To field **normalises on blur** (full native address → bare KPOST ID) while still submitting the full address — never press Enter to "commit" it, that can eat the recipient. Send fires `POST /v2/sentMail/postMail/`. **Self-sends are rejected** (400 "Duplicate IDs are present in ToAddress…" → alert "Some Error Occurred!"), so the success path needs `MAIL_RECIPIENT` (a second account); the backend also intermittently 401s valid sessions (KPOST-KMAIL-002). |
 | `Settings` | ✅ Works. Routes to `/settings` (rail: `icon-KP_15-Settings`). Six sections as **plain clickable text, not ARIA tabs** — Profile Creation, Digital Card Settings, General Settings, KMail Settings, KNews Settings, My Account — and selecting one does not change the URL. Renders the signed-in user's name + avatar + "Add Cover Photo". **No toggles, switches, or theme controls exist**; the app's only preference control is the header language `<select>` (English/Russian/Japanese), modelled on `AppShellPage`. Only KNews Settings carries its own Submit; "My Account" opened directly renders no controls. |
 | `KEcommerce` | ✅ Works. Routes to **`/e-commerce`** (hyphenated — not `/kecommerce`); rail: `icon-KP_14-KCommerce`. Zero failed requests. The catalog is ~60 merchant-logo images with alt text (amazon, flipkart, myntra, …) and **nothing else** — no heading, search, filters, or cart; the only interactive elements are the shell header controls. |
 
@@ -248,7 +249,14 @@ onboarding and global setup stores a second session at `.auth/directory.json`
 `test.use({ storageState: … })` and stop skipping. Leave both unset and they skip
 with a reason; set only one and `env.ts` fails fast. A configured-but-broken
 directory user is fatal, not a warning — opting in is a statement that the
-account exists.
+account exists. The full chain (env → seeding → verification → spec selection →
+wizard detection) is verified working; only a genuinely onboarded account is
+still missing.
+
+**Optional mail recipient.** `MAIL_RECIPIENT` (a second KPOST account) unlocks
+the full send-success E2E ("a sent mail is accepted and appears in the Sent
+folder"). Without it that test skips, and the always-running self-send contract
+test covers the whole compose/send pipeline against the documented rejection.
 
 ## Commands
 

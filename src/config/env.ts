@@ -102,6 +102,16 @@ export interface EnvConfig {
   };
   /** True when a pre-onboarded directory user is configured. */
   readonly hasDirectoryUser: boolean;
+  readonly mail: {
+    /**
+     * OPTIONAL recipient for the KMail send E2E test. The backend rejects
+     * sending to yourself ("Duplicate IDs are present in ToAddress, CopyList,
+     * or ConfidentialCopyList" — the app auto-appends the sender), so the full
+     * success path needs a second KPOST account. Unset → the send test verifies
+     * the compose/send mechanics against that documented self-send rejection.
+     */
+    readonly recipient: string | undefined;
+  };
   readonly auth: {
     /** 'api' → fast API login for storage state; 'ui' → drive the login form. */
     readonly mode: 'api' | 'ui';
@@ -133,6 +143,9 @@ export const env: EnvConfig = Object.freeze({
     ...(directoryUser ? { directory: directoryUser } : {}),
   },
   hasDirectoryUser: directoryUser !== undefined,
+  mail: {
+    recipient: process.env.MAIL_RECIPIENT || undefined,
+  },
   auth: {
     // Defaults to 'ui': KPost stores its session as several localStorage keys
     // (accessToken, refreshToken, isAuthenticated, Authuser, and an encrypted

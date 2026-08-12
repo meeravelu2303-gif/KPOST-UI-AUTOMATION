@@ -22,13 +22,24 @@
  * VERIFIED · A Status-of-Mail summary: Draft Mails, Sent Mail, "Not Opened • 0",
  *            "Reply Not Received • 0", "Reply Not Sent • 0".
  *
- * ── Where composing actually lives ──
- * KMail has **no compose button**. The whole module exposes 15 interactive
- * elements and none of them starts a mail. Composing is a *separate* module —
- * the launcher offers `button "W Write Mail Compose a new mail Open"`. So
- * `startCompose()` launches Write Mail rather than hunting for a button that
- * does not exist here. The compose *form* itself is unverified; Write Mail
- * deserves its own page object once it is exercised.
+ * ── Where composing actually lives (verified 2026-08-12, second pass) ──
+ * KMail has **no compose button**. Composing is the *Write Mail* module
+ * (`button "W Write Mail Compose a new mail Open"` in the launcher), which
+ * routes to `/writemail` and renders the composer alongside the KMail pane:
+ *   · To         → `input[name="to"]`               (no label — a11y gap)
+ *   · Salutation → `textbox "Select Salutation"` + `textbox "Name"`
+ *   · Subject    → `input.toInput`                  (no label — a11y gap)
+ *   · Body       → a Quill editor, `div.ql-editor`  (contenteditable)
+ *   · Send       → `button.post_button_size`        (icon-only, NO accessible
+ *                  name — the same accessibility defect as the icon rail)
+ * Send fires `POST {host}/v2/sentMail/postMail/` with the composed payload.
+ *
+ * Observed server behaviour: sending **to yourself is rejected** — 400
+ * `"Duplicate IDs are present in ToAddress, CopyList, or ConfidentialCopyList"`
+ * (the app auto-appends the sender), and the UI toasts the generic alert
+ * "Some Error Occurred!". A *successful* send has therefore never been
+ * observed with the single configured account; the success-path assertions
+ * are conventional until `MAIL_RECIPIENT` points at a second KPOST account.
  */
 import { type Locator, type Page, expect, test } from '@playwright/test';
 import { AppShellPage } from './AppShellPage';
@@ -57,10 +68,13 @@ export class KMailPage extends AppShellPage {
   // ---- Unverified: no mail data on this account ----
   private readonly mailList: Locator;
   private readonly mailListItems: Locator;
+
+  // ---- Composer (verified on /writemail; CSS where the app ships no labels) ----
   private readonly composeTo: Locator;
   private readonly composeSubject: Locator;
   private readonly composeBody: Locator;
   private readonly sendButton: Locator;
+  private readonly sendErrorAlert: Locator;
 
   constructor(page: Page) {
     super(page);
@@ -77,10 +91,13 @@ export class KMailPage extends AppShellPage {
 
     this.mailList = page.getByRole('list', { name: /mails?|inbox|messages/i }).first();
     this.mailListItems = this.mailList.getByRole('listitem');
-    this.composeTo = page.getByLabel(/^\s*to\b/i);
-    this.composeSubject = page.getByLabel(/subject/i);
-    this.composeBody = page.getByRole('textbox', { name: /body|message|content/i });
-    this.sendButton = page.getByRole('button', { name: /^\s*send\s*$/i });
+    // Composer fields carry no labels or accessible names (see class doc), so
+    // these are attribute/class selectors by necessity, verified live.
+    this.composeTo = page.locator('input[name="to"]');
+    this.composeSubject = page.locator('input.toInput');
+    this.composeBody = page.locator('.ql-editor').first();
+    this.sendButton = page.locator('button.post_button_size').first();
+    this.sendErrorAlert = page.getByRole('alert').filter({ hasText: /some error occurred/i });
   }
 
   // ---------------------------------------------------------------------------
@@ -246,27 +263,90 @@ export class KMailPage extends AppShellPage {
   // Compose — lives in the separate "Write Mail" module (see class doc)
   // ---------------------------------------------------------------------------
 
-  /** Launch the Write Mail module, which is where composing actually happens. */
+  /** Launch the Write Mail composer and wait for its form to render. */
   async startCompose(): Promise<void> {
     await test.step('Open the Write Mail composer', async () => {
       await this.launchModule('Write Mail');
+      await this.expectPath(/\/writemail/i);
+      // KMail's pane loads alongside the composer and still raises
+      // KPOST-KMAIL-001; clear its dev-only overlay so the form is clickable.
+      await this.dismissDevErrorOverlay();
+      await expect(this.composeSubject).toBeVisible();
     });
   }
 
-  /** UNVERIFIED — the compose form has not been observed. */
+  /** Fill recipient, subject, and body. */
   async fillDraft(draft: MailDraft): Promise<void> {
     await test.step(`Fill the draft "${draft.subject}"`, async () => {
       await this.fill(this.composeTo, draft.to);
+      // The To field normalises on blur: a full native address is rewritten to
+      // its bare KPOST ID ("qag37966sa@kpostindia.com" → "qag37966sa"), while
+      // the app still submits the full address in the postMail payload —
+      // verified by capturing the request. Do NOT press Enter to "commit" it:
+      // Enter can fire the rewrite mid-type-ahead and drop the recipient.
       await this.fill(this.composeSubject, draft.subject);
       await this.composeBody.click();
       await this.composeBody.fill(draft.body);
+      await expect(this.composeBody).toContainText(draft.body);
+      // Guard: the field must still identify the recipient — either the full
+      // address or its normalised KPOST ID. Anything else means the type-ahead
+      // ate the recipient and send would silently refuse to fire.
+      const local = draft.to.split('@')[0];
+      await expect(this.composeTo).toHaveValue(
+        new RegExp(`^${local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(@.+)?$`),
+      );
     });
   }
 
-  /** UNVERIFIED — the compose form has not been observed. */
-  async send(): Promise<void> {
-    await test.step('Send the mail', async () => {
-      await this.click(this.sendButton);
+  /**
+   * Click Send and wait for the `postMail` API response in one race-free step.
+   * Returns the server's verdict so the caller can assert either outcome —
+   * acceptance is not assumed, because the backend rejects self-sends.
+   */
+  async send(): Promise<{ status: number; message: string }> {
+    return test.step('Send the mail and await the postMail response', async () => {
+      // KPOST-KMAIL-001 refires on the KMail pane's refresh cycle, so the
+      // overlay dismissed by startCompose() can be back by now — and unlike
+      // fills, clicks are hit-tested and get intercepted. Clear it again
+      // immediately before the one click this flow depends on.
+      await this.dismissDevErrorOverlay();
+      const response = await this.clickAndWaitForResponse(
+        this.sendButton,
+        /\/sentMail\/postMail/i,
+        () => true, // capture the response whatever its status
+      );
+      const body = (await response.json().catch(() => ({}))) as { message?: string };
+      return { status: response.status(), message: body.message ?? '' };
+    });
+  }
+
+  /** Compose and send in one call, returning the server's verdict. */
+  async composeAndSend(draft: MailDraft): Promise<{ status: number; message: string }> {
+    return test.step(`Compose and send "${draft.subject}"`, async () => {
+      await this.startCompose();
+      await this.fillDraft(draft);
+      return this.send();
+    });
+  }
+
+  /** Assert the UI surfaced the send-failure alert ("Some Error Occurred!"). */
+  async expectSendErrorAlert(): Promise<void> {
+    await test.step('Expect the send-failure alert', async () => {
+      await expect(this.sendErrorAlert).toBeVisible();
+    });
+  }
+
+  /**
+   * Assert a successful send: no error alert, and the subject listed under
+   * Status of Mails → Sent Mail. UNVERIFIED — a successful send has never been
+   * observed (needs `MAIL_RECIPIENT`); adjust against the real DOM on first use.
+   */
+  async expectMailInSentFolder(subject: string): Promise<void> {
+    await test.step(`Expect "${subject}" in the Sent folder`, async () => {
+      await expect(this.sendErrorAlert).toBeHidden();
+      await this.openStatusOfMailsTab();
+      await this.click(this.sentMail.first());
+      await expect(this.page.getByText(subject).first()).toBeVisible();
     });
   }
 }

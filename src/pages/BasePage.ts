@@ -186,9 +186,15 @@ export abstract class BasePage {
     locator: Locator,
     urlPattern: string | RegExp,
     predicate: (res: Response) => boolean = (res) => res.ok(),
+    options: { timeout?: number } = {},
   ): Promise<Response> {
     const [response] = await Promise.all([
-      this.page.waitForResponse((res) => matchesUrl(res.url(), urlPattern) && predicate(res)),
+      this.page.waitForResponse(
+        (res) => matchesUrl(res.url(), urlPattern) && predicate(res),
+        // Default to 30s: the KPost backends routinely take longer than the
+        // 15s actionTimeout that would otherwise apply to this wait.
+        { timeout: options.timeout ?? 30_000 },
+      ),
       this.click(locator),
     ]);
     return response;
