@@ -166,8 +166,12 @@ export class KNewsPage extends AppShellPage {
       const count = Math.min(sample, await this.newsCards.count());
       expect(count).toBeGreaterThan(0);
       for (let i = 0; i < count; i++) {
-        const href = await this.newsCards.nth(i).getAttribute('href');
-        expect(href, `card ${i} has no href`).toBeTruthy();
+        // `/.+/` is the web-first spelling of the previous `toBeTruthy()` on the
+        // attribute: present and non-empty. Same assertion, now auto-retrying.
+        await expect(this.newsCards.nth(i), `card ${i} has no href`).toHaveAttribute(
+          'href',
+          /.+/,
+        );
       }
     });
   }

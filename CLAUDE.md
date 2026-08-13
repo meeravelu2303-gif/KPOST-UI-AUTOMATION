@@ -8,11 +8,14 @@ Read this before adding tests or page objects so the suite stays consistent.
 A Playwright + TypeScript **UI** automation framework for the KPost React app
 (`https://localhost:3000`), built to sit alongside the existing Playwright API
 automation. Architecture is Page Object Model + custom fixtures. See `README.md`
-for the full tour, `TEST-BENCH-REPORT.md` for the state-of-the-bench analysis,
+for the full tour, `OPERATIONS.md` for running it and delivering its reports,
+`docs/archive/TEST-BENCH-REPORT.md` for the archived state-of-the-bench analysis,
 and this file for the working contract.
 
 **Current size:** 10 page objects · 10 spec files · 59 tests · 4 browser projects
-(chromium, firefox, webkit, mobile-chrome).
+(chromium, firefox, webkit, mobile-chrome) = **236 tests planned per full run**.
+That 236 is the number every report calls `totalTests`; confirm it with
+`npm run test:list` after adding specs.
 
 ## The app under test — verified ground truth
 
@@ -138,6 +141,9 @@ and renders a dead, shell-less page instead of redirecting to `/login`. The
 | Inject a new page object / state | `src/fixtures/fixtures.ts` |
 | Add test data | `src/data/*.json` (static) or `src/data/factories/*` (per-test) |
 | Add a domain type | `src/types/index.ts` |
+| Register an app defect | `src/utils/known-defects.ts` + `noteKnownDefect()` in the test |
+| Change what a report says | `src/reporting/run-model.ts` first — the files and the dashboard payload are projections of it |
+| Add a report artifact | `src/reporting/<name>.ts`, fed the model by `dashboard-reporter.ts` |
 | Add tests | `tests/<area>/<name>.spec.ts` |
 
 Areas in use: `auth/`, `home/`, `kmail/`, `kdirectory/`, `katchup/`,
@@ -156,15 +162,50 @@ HTML report (annotation on the test page), `results.json`
 registered defects. CI systems that parse JUnit get the defect ID and summary
 without any extra wiring.
 
-**Every run also posts to the external QA Dashboard** (the separate
-`QA-Dashboard` repo) via `src/reporting/dashboard-reporter.ts`, registered in
-`playwright.config.ts` alongside — never instead of — the html/json/junit
-reporters. It sends the run summary plus the known defects the run observed
-(upserted by stable `KPOST-*` id, with severity/module from the registry) to
-`POST $DASHBOARD_INGEST_URL` with a Bearer key. Unset env vars → clean no-op;
-a dashboard outage → a warning, never a failed run. The ingest contract lives
-in `QA-Dashboard/src/lib/validation.ts` — if you change the registry shape,
-check it still maps.
+### The reporting engine — one model, four projections
+
+`src/reporting/dashboard-reporter.ts` is registered in `playwright.config.ts`
+alongside — never instead of — the html/json/junit reporters. On `onEnd` it
+builds **one** run model and projects it four ways:
+
+| File | Role |
+| --- | --- |
+| `run-model.ts` | The model. Pure — counts, completeness verdict, defect sightings. No I/O. |
+| `bug-report.ts` | `BUG_REPORT.json` + `.md` — **committed**, the developer deliverable, same schema as the API bench's. |
+| `dev-digest.ts` | `DEV_DIGEST.md` + `.json` — gitignored (derived), one-screen triage. `npm run digest`. |
+| `dashboard-reporter.ts` | Orchestrates, then POSTs to `$DASHBOARD_INGEST_URL` (Bearer key, slug `kpost-ui`). |
+
+The API bench splits files and push across two reporters and documents an
+ordering rule to keep them in step. Building one model and projecting it removes
+the possibility of a mismatch instead of managing it — **if you add an artifact,
+derive it from the model too, never from a re-read of a written file.**
+
+Preserved guarantees: unset dashboard vars → clean no-op; 15s timeout; an outage
+warns and never fails a run; defects upserted by stable `KPOST-*` id with
+severity/module from the registry. The ingest contract lives in
+`QA-Dashboard/src/lib/validation.ts` — if you change the registry shape, check it
+still maps.
+
+**Report honestly — the rules that are not negotiable.**
+
+- `totalTests` is what Playwright **planned** (`suite.allTests().length` = 236),
+  never what finished. When a run is cut short, the gap between planned and
+  accounted IS the signal — the dashboard's `assessRunReport()` flags exactly
+  that. Never shrink the total to match, never scale the counts up to the plan.
+- Counts come from tests that reached a **terminal result**, one vote per test
+  taken from its last attempt (so a retried flaky test counts once). Tests that
+  were interrupted are counted as `interrupted`, not folded into skipped — they
+  did not pass, fail, or get skipped.
+- An incomplete run prints a `⚠ run INCOMPLETE` warning before any pass rate, and
+  banners both file reports.
+- **A dry run is not a run.** `--list` and a `--grep` that matches nothing reach
+  `onEnd` having executed nothing; posting those filed phantom `0/0/0` rows on the
+  dashboard. The reporter returns early when no test ever began.
+- The environment label is a short **code** (`Local` / `QA` / `Staging` /
+  `Production`), from `src/utils/environment.ts`, shared verbatim with the API
+  bench. The dashboard groups by that string, so `local` here and `Local` there
+  would split one environment into two rows. Never send a URL — `baseURL` is
+  reported separately.
 
 **When the app raises an error.** `assertNoAppErrorOverlay()` detects the
 dev-server overlay (`#webpack-dev-server-client-overlay`) and throws the real
@@ -287,9 +328,16 @@ npm test                                   # full suite, all browsers
 npm run test:smoke                         # @smoke only
 npm run test:serial                        # workers=1 — required for app-dependent runs
 npm run test:ui                            # time-travel debugging
+npm run test:list                          # enumerate (236) without running — reports nothing
+npm run report                             # Playwright HTML report: traces, video
+npm run digest                             # print DEV_DIGEST.md — fastest read on a run
 npm run codegen                            # record real KPost selectors
 npm run ci                                 # typecheck → lint → test (the gate)
 ```
+
+Per-area (`test:kmail`, `test:kpay`, …) and per-browser (`test:chromium`,
+`test:mobile`, …) scripts exist for every module and project; combine with
+`-- --project=chromium`. Full list and operational detail: `OPERATIONS.md`.
 
 ## Before you push
 

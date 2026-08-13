@@ -7,12 +7,11 @@
  * which makes them portable across local / dev / staging / CI.
  */
 import { config as loadDotenv } from 'dotenv';
+import { environmentName } from '../utils/environment';
 
 // Load `.env` if present. In CI, real values come from injected env vars,
 // so a missing `.env` file is not an error.
 loadDotenv();
-
-type TestEnvironment = 'local' | 'dev' | 'staging' | 'prod';
 
 /**
  * Reads a required env var and fails loudly at startup if it is missing.
@@ -90,7 +89,14 @@ export interface Credentials {
 }
 
 export interface EnvConfig {
-  readonly testEnv: TestEnvironment;
+  /**
+   * Short environment CODE — `Local` / `QA` / `Staging` / `Production` / `Unknown`,
+   * or an explicit `TEST_ENV` override. Never a URL: this is the string the QA
+   * Dashboard groups runs by, and it must match what the API bench sends for the
+   * same environment (see `src/utils/environment.ts`). The target URL lives in
+   * `baseURL` and is reported separately.
+   */
+  readonly testEnv: string;
   readonly baseURL: string;
   readonly apiBaseURL: string;
   readonly headless: boolean;
@@ -145,9 +151,12 @@ export interface EnvConfig {
   };
 }
 
+// Resolved before the object literal so `testEnv` can be derived from it.
+const baseURL = optional('BASE_URL', 'https://localhost:3000');
+
 export const env: EnvConfig = Object.freeze({
-  testEnv: optional('TEST_ENV', 'local') as TestEnvironment,
-  baseURL: optional('BASE_URL', 'https://localhost:3000'),
+  testEnv: environmentName(baseURL),
+  baseURL,
   apiBaseURL: optional('API_BASE_URL', 'https://localhost:3000/api'),
   headless: toBool(optional('HEADLESS', 'true')),
   slowMo: Number.parseInt(optional('SLOW_MO', '0'), 10),

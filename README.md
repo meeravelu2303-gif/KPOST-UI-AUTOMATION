@@ -16,13 +16,17 @@ independent, cleanly-layered UI suite.
 3. [Prerequisites](#prerequisites)
 4. [Getting started](#getting-started)
 5. [Running tests](#running-tests)
-6. [Core design patterns](#core-design-patterns)
-7. [Handling React-specific UI challenges](#handling-react-specific-ui-challenges)
-8. [Test data management](#test-data-management)
-9. [Writing a new test — quickstart](#writing-a-new-test--quickstart)
-10. [CI/CD](#cicd)
-11. [Flaky-test prevention playbook](#flaky-test-prevention-playbook)
-12. [Conventions & standards](#conventions--standards)
+6. [Reports & delivery](#reports--delivery)
+7. [Core design patterns](#core-design-patterns)
+8. [Handling React-specific UI challenges](#handling-react-specific-ui-challenges)
+9. [Test data management](#test-data-management)
+10. [Writing a new test — quickstart](#writing-a-new-test--quickstart)
+11. [CI/CD](#cicd)
+12. [Flaky-test prevention playbook](#flaky-test-prevention-playbook)
+13. [Conventions & standards](#conventions--standards)
+
+> **Operating the bench day to day** — every command, every report, how to deliver
+> results to developers, and what a truncated run looks like: **`OPERATIONS.md`**.
 
 ---
 
@@ -61,10 +65,19 @@ KPOST-UI-AUTOMATION/
 │   │   ├── KDirectoryPage.ts       # POM for the directory module (search · list · setup wizard)
 │   │   ├── KatchupPage.ts          # POM for the chats module (Recents/Contacts · search · threads)
 │   │   ├── SettingsPage.ts         # POM for the settings module (sections · profile · language)
-│   │   └── KEcommercePage.ts       # POM for the marketplace module (merchant catalog)
+│   │   ├── KEcommercePage.ts       # POM for the marketplace module (merchant catalog)
+│   │   ├── KNewsPage.ts            # POM for the news module (feed · ticker · categories)
+│   │   └── KPayPage.ts             # POM pinning the not-implemented KPay contract
 │   ├── fixtures/
 │   │   └── fixtures.ts             # Custom test/expect: injects page objects + session state
+│   ├── reporting/
+│   │   ├── run-model.ts            # ONE model of a finished run — every report is a projection of it
+│   │   ├── bug-report.ts           # Writes BUG_REPORT.json / BUG_REPORT.md (committed deliverable)
+│   │   ├── dev-digest.ts           # Writes DEV_DIGEST.md / .json (one-screen triage)
+│   │   └── dashboard-reporter.ts   # Builds the model, writes the files, POSTs to the QA Dashboard
 │   ├── utils/
+│   │   ├── environment.ts          # Environment LABEL (Local/QA/Staging/Production) — shared with the API bench
+│   │   ├── known-defects.ts        # Registry of confirmed app defects (documents, never suppresses)
 │   │   ├── logger.ts               # Lightweight leveled logger (report-friendly)
 │   │   └── react-helpers.ts        # Re-render/virtualized-list/dropdown/toast helpers
 │   ├── data/
@@ -75,21 +88,27 @@ KPOST-UI-AUTOMATION/
 │   │       └── postFactory.ts      # Unique posts per test (no collisions in parallel)
 │   └── types/
 │       └── index.ts                # Shared domain models (User, Post, Toast, …)
-├── tests/
+├── tests/                             # 59 specs × 4 browser projects = 236 tests
 │   ├── auth/
 │   │   ├── login.spec.ts           # Valid/invalid/validation (data-driven), runs logged-out
 │   │   └── logout.spec.ts          # Logout + protected-route redirect
-│   ├── dashboard/
-│   │   ├── dashboard.spec.ts       # Shell + empty/populated/error feed via route mocking
-│   │   └── feed-search.spec.ts     # Search filtering + pagination via query-keyed mocking
-│   ├── posts/
-│   │   ├── post-creation.spec.ts   # Happy path + validation + boundary + API-failure edge cases
-│   │   └── post-management.spec.ts # Edit + delete (confirm dialog) via route mocking
-│   └── profile/
-│       └── profile.spec.ts         # View + update display name + validation
+│   ├── home/home.spec.ts           # Shell, Recents/Contacts tabs, module panels
+│   ├── kmail/kmail.spec.ts         # Tabs, counters, and the Write Mail compose/send E2E
+│   ├── kdirectory/kdirectory.spec.ts  # Setup wizard + the specs gated on an onboarded account
+│   ├── katchup/katchup.spec.ts     # Chats & contacts module
+│   ├── settings/settings.spec.ts   # Sections, profile, language picker
+│   ├── kecommerce/kecommerce.spec.ts  # Merchant catalog
+│   ├── knews/knews.spec.ts         # Feed, ticker, categories, search
+│   └── kpay/kpay.spec.ts           # Pins the not-implemented contract (fails the day KPay ships)
+├── scripts/
+│   └── print-digest.js             # `npm run digest` — prints DEV_DIGEST.md
+├── docs/archive/                   # Point-in-time analyses kept for reference
+├── OPERATIONS.md                   # Operations manual: commands, reports, delivery, troubleshooting
 ├── CLAUDE.md                       # Repo working contract (conventions, how to add tests/POMs)
+├── BUG_REPORT.md / .json           # (committed, generated) the developer deliverable
+├── DEV_DIGEST.md / .json           # (gitignored, generated) one-screen triage summary
 ├── .auth/                          # (gitignored) persisted storageState from globalSetup
-├── playwright-report/              # (gitignored) HTML report
+├── playwright-report/              # (gitignored) HTML report + traces
 ├── test-results/                   # (gitignored) traces, videos, screenshots, JSON/JUnit
 ├── .env.example                    # Template for local secrets (copy → .env)
 ├── .gitignore
@@ -157,16 +176,52 @@ npm test
 | `npm run test:headed` | Headed mode |
 | `npm run test:ui` | Playwright UI mode (time-travel debugging) |
 | `npm run test:debug` | Inspector / step debugging |
-| `npm run test:chromium` | Chromium only (also `:firefox`, `:webkit`) |
+| `npm run test:chromium` | Chromium only (also `:firefox`, `:webkit`, `:mobile`) |
 | `npm run test:smoke` | Tests tagged `@smoke` |
 | `npm run test:regression` | Tests tagged `@regression` |
-| `npm run test:auth` | Only `tests/auth` |
-| `npm run report` | Open the last HTML report |
+| `npm run test:serial` | `--workers=1` — **required** for app-dependent runs |
+| `npm run test:auth` | Only `tests/auth` (also `:home`, `:kmail`, `:kdirectory`, `:katchup`, `:settings`, `:kecommerce`, `:knews`, `:kpay`) |
+| `npm run test:list` | Enumerate the 236 tests without executing (reports nothing) |
+| `npm run report` | Open the last HTML report (traces, video) |
+| `npm run digest` | Print `DEV_DIGEST.md` — the fastest read on a run |
 | `npm run codegen` | Record selectors against the app |
 | `npm run ci` | typecheck → lint → test (the full gate) |
 
-Tests are **tagged** (`@smoke`, `@regression`, `@auth`, `@posts`) so CI can run
-fast smoke checks on every PR and full regression nightly.
+Tests are **tagged** (`@smoke`, `@regression`, plus an area tag such as `@kmail`)
+so CI can run fast smoke checks on every PR and full regression nightly.
+
+> **Run app-dependent suites serially.** KPost allows roughly one active session
+> per account, so parallel workers on the shared test user fight each other. Use
+> `npm run test:serial` until per-worker accounts exist.
+
+---
+
+## Reports & delivery
+
+Every run produces four things, all projected from **one** run model
+(`src/reporting/run-model.ts`) so they cannot disagree:
+
+| Artifact | Committed? | What it is |
+| --- | --- | --- |
+| `BUG_REPORT.md` / `.json` | **yes** | The application defects this run observed, ticket-ready. The deliverable you hand a developer. Same schema as the API bench's. |
+| `DEV_DIGEST.md` / `.json` | no (derived) | One screen: verdict, execution table, defects seen. `npm run digest`. |
+| `playwright-report/` | no | Playwright's own HTML report — traces, video, screenshots. `npm run report`. |
+| QA Dashboard row | — | POSTed automatically under application slug **`kpost-ui`**. |
+
+The dashboard push is fail-safe by construction: unset `DASHBOARD_INGEST_URL` /
+`DASHBOARD_API_KEY` → clean no-op; 15-second timeout; an outage warns and never
+fails the run; a listing run posts nothing.
+
+**Truncated runs are reported as truncated.** `totalTests` is always what
+Playwright *planned* (236), never what happened to finish. If a degraded app kills
+a run after ten tests, the payload says `totalTests: 236` with ten accounted for —
+the terminal prints a `⚠ run INCOMPLETE` warning, both file reports open with an
+INCOMPLETE banner, and the dashboard flags the run. Counts are never rescaled to
+close the gap. See `OPERATIONS.md` → *When a run comes back incomplete*.
+
+**Known app defects** are registered in `src/utils/known-defects.ts` and attached
+with `noteKnownDefect()`. The annotated test **still fails** — the registry
+documents a defect, it never suppresses one.
 
 ---
 

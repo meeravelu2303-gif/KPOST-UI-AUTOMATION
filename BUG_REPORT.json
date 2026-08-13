@@ -1,0 +1,48 @@
+{
+  "generatedAt": "2026-08-13T06:52:31.411Z",
+  "generatedAtHuman": "2026-08-13 06:52:31 UTC",
+  "environment": "Local",
+  "baseURL": "https://localhost:3000",
+  "run": {
+    "status": "passed",
+    "totalTests": 3,
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "interrupted": 0,
+    "accounted": 3,
+    "unaccounted": 0,
+    "durationMs": 52763,
+    "durationSeconds": 52.8,
+    "projects": [
+      "chromium"
+    ],
+    "incomplete": false,
+    "incompleteReasons": []
+  },
+  "summary": {
+    "total": 1,
+    "bySeverity": {
+      "Low": 1
+    },
+    "byModule": {
+      "KPay": 1
+    }
+  },
+  "defects": [
+    {
+      "id": "KPOST-KPAY-001",
+      "displayId": "KPOST-KPAY-001",
+      "title": "The icon rail shows a KPay entry that silently does nothing.",
+      "severity": "Low",
+      "module": "KPay",
+      "owner": "",
+      "method": "",
+      "endpointPath": "",
+      "description": "The rail renders div.icon-KP_12-KWallet and its expanded labels include \"KPay\", but clicking either leaves the URL unchanged, Quick Access does not offer the module, and /kpay, /kwallet, and /pay all render the 404 page (verified 2026-08-13). A visible nav entry that silently does nothing is broken UX from the user’s side, whatever the roadmap says — it should be hidden, disabled with an affordance, or wired up.",
+      "requestBody": "",
+      "expected": "Rail entries either navigate somewhere or are visibly disabled/absent.",
+      "actual": "Observed by 3 test(s) in this passed run: clicking the KPay rail entry navigates nowhere [chromium] (passed); the rail advertises KPay but the launcher does not offer it [chromium] (passed); the KPay route is not implemented and 404s [chromium] (passed)"
+    }
+  ]
+}
