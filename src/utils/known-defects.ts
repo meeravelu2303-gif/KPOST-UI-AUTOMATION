@@ -25,12 +25,18 @@ export interface KnownDefect {
   readonly evidence: string;
   /** What the test asserts, i.e. the behaviour we expect once fixed. */
   readonly expected: string;
+  /** Severity as reported to the QA dashboard. */
+  readonly severity: 'High' | 'Medium' | 'Low';
+  /** The KPost module the defect lives in, as shown on the QA dashboard. */
+  readonly module: string;
 }
 
 export const KNOWN_APP_DEFECTS = {
   /** KMail's unopened-mail thunk throws an uncaught error on load. */
   KMAIL_UNOPENED_MAIL_TYPE_ERROR: {
     id: 'KPOST-KMAIL-001',
+    severity: 'Medium',
+    module: 'KMail',
     summary: 'KMail raises an uncaught TypeError on load (UnopenedMailAsync).',
     evidence:
       "Uncaught \"TypeError: Cannot read properties of undefined (reading 'status')\" at " +
@@ -46,6 +52,8 @@ export const KNOWN_APP_DEFECTS = {
   /** Katchup's contacts backend 500s and the app does not handle it. */
   KATCHUP_CONTACTS_500_UNHANDLED: {
     id: 'KPOST-KATCHUP-001',
+    severity: 'Medium',
+    module: 'Katchup',
     summary: 'Katchup does not handle a failing contacts backend; it raises instead of degrading.',
     evidence:
       'GET localhost:8989/v2/contacts/getImportedPhoneContacts/ and POST ' +
@@ -61,6 +69,8 @@ export const KNOWN_APP_DEFECTS = {
   /** The mail backend intermittently 401s requests from a valid session. */
   KMAIL_POSTMAIL_INTERMITTENT_401: {
     id: 'KPOST-KMAIL-002',
+    severity: 'High',
+    module: 'KMail',
     summary: 'POST /v2/sentMail/postMail/ intermittently returns 401 for a valid session.',
     evidence:
       'The same self-send, from a freshly logged-in session with an unexpired token ' +
@@ -76,6 +86,8 @@ export const KNOWN_APP_DEFECTS = {
   /** The KEcommerce merchant catalog intermittently renders empty. */
   KECOMMERCE_CATALOG_INTERMITTENTLY_EMPTY: {
     id: 'KPOST-KECOM-001',
+    severity: 'Medium',
+    module: 'KEcommerce',
     summary: 'The KEcommerce catalog intermittently renders as an empty pane.',
     evidence:
       'During a full serial suite run on 2026-08-12, /e-commerce rendered only the ' +
@@ -91,6 +103,8 @@ export const KNOWN_APP_DEFECTS = {
   /** KNews renders an empty feed with no error state when its sources fail. */
   KNEWS_EMPTY_FEED_ON_SOURCE_FAILURE: {
     id: 'KPOST-KNEWS-001',
+    severity: 'Medium',
+    module: 'KNews',
     summary: 'KNews renders an empty feed with no error state when its news bridges fail.',
     evidence:
       'KNews fetches content through public RSS bridges (corsproxy.io, rss2json.com) ' +
@@ -107,6 +121,8 @@ export const KNOWN_APP_DEFECTS = {
   /** The rail advertises a KPay module that does not exist. */
   KPAY_DEAD_NAV_ENTRY: {
     id: 'KPOST-KPAY-001',
+    severity: 'Low',
+    module: 'KPay',
     summary: 'The icon rail shows a KPay entry that silently does nothing.',
     evidence:
       'The rail renders div.icon-KP_12-KWallet and its expanded labels include ' +
@@ -121,6 +137,8 @@ export const KNOWN_APP_DEFECTS = {
   /** Logging out does not guard protected routes. */
   LOGOUT_NO_ROUTE_GUARD: {
     id: 'KPOST-AUTH-001',
+    severity: 'High',
+    module: 'Auth',
     summary: 'After logout, protected routes are not redirected back to /login.',
     evidence:
       'Logout correctly clears accessToken, refreshToken, Authuser and ' +

@@ -40,12 +40,16 @@ export default defineConfig({
   /* Cap workers on CI for stable, reproducible timing; use all cores locally. */
   workers: env.workers ?? (env.isCI ? 2 : undefined),
 
-  /* Reporters: HTML for humans, list for terminal, JSON + JUnit for CI systems. */
+  /* Reporters: HTML for humans (the local reference — `npm run report`), list
+     for the terminal, JSON + JUnit for CI systems, and the QA-dashboard
+     uploader, which posts every run's summary + observed known defects to the
+     external dashboard and no-ops when DASHBOARD_INGEST_URL is unset. */
   reporter: [
     ['list'],
     ['html', { open: 'never', outputFolder: 'playwright-report' }],
     ['json', { outputFile: 'test-results/results.json' }],
     ['junit', { outputFile: 'test-results/junit.xml' }],
+    ['./src/reporting/dashboard-reporter.ts'],
     ...(env.isCI ? [['github'] as const] : []),
   ],
 

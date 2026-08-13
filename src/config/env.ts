@@ -71,6 +71,19 @@ function optionalCredentials(emailVar: string, passwordVar: string): Credentials
 
 const directoryUser = optionalCredentials('DIRECTORY_USER_EMAIL', 'DIRECTORY_USER_PASSWORD');
 
+/** Read the optional dashboard pair; both-or-neither, like credentials. */
+function optionalDashboard(): { ingestUrl: string | undefined; apiKey: string | undefined } {
+  const ingestUrl = process.env.DASHBOARD_INGEST_URL || undefined;
+  const apiKey = process.env.DASHBOARD_API_KEY || undefined;
+  if ((ingestUrl === undefined) !== (apiKey === undefined)) {
+    throw new Error(
+      '"DASHBOARD_INGEST_URL" and "DASHBOARD_API_KEY" must be set together — found only ' +
+        `${ingestUrl ? 'DASHBOARD_INGEST_URL' : 'DASHBOARD_API_KEY'}.`,
+    );
+  }
+  return { ingestUrl, apiKey };
+}
+
 export interface Credentials {
   readonly email: string;
   readonly password: string;
@@ -112,6 +125,16 @@ export interface EnvConfig {
      */
     readonly recipient: string | undefined;
   };
+  /**
+   * OPTIONAL external QA dashboard (the separate QA-Dashboard repo). When both
+   * values are set, `DashboardReporter` posts every run's summary and observed
+   * known defects to `POST {ingestUrl}` with `Authorization: Bearer {apiKey}`.
+   * Leave both unset and the reporter no-ops. Set only one and startup fails.
+   */
+  readonly dashboard: {
+    readonly ingestUrl: string | undefined;
+    readonly apiKey: string | undefined;
+  };
   readonly auth: {
     /** 'api' → fast API login for storage state; 'ui' → drive the login form. */
     readonly mode: 'api' | 'ui';
@@ -146,6 +169,7 @@ export const env: EnvConfig = Object.freeze({
   mail: {
     recipient: process.env.MAIL_RECIPIENT || undefined,
   },
+  dashboard: optionalDashboard(),
   auth: {
     // Defaults to 'ui': KPost stores its session as several localStorage keys
     // (accessToken, refreshToken, isAuthenticated, Authuser, and an encrypted

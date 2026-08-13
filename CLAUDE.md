@@ -156,6 +156,16 @@ HTML report (annotation on the test page), `results.json`
 registered defects. CI systems that parse JUnit get the defect ID and summary
 without any extra wiring.
 
+**Every run also posts to the external QA Dashboard** (the separate
+`QA-Dashboard` repo) via `src/reporting/dashboard-reporter.ts`, registered in
+`playwright.config.ts` alongside — never instead of — the html/json/junit
+reporters. It sends the run summary plus the known defects the run observed
+(upserted by stable `KPOST-*` id, with severity/module from the registry) to
+`POST $DASHBOARD_INGEST_URL` with a Bearer key. Unset env vars → clean no-op;
+a dashboard outage → a warning, never a failed run. The ingest contract lives
+in `QA-Dashboard/src/lib/validation.ts` — if you change the registry shape,
+check it still maps.
+
 **When the app raises an error.** `assertNoAppErrorOverlay()` detects the
 dev-server overlay (`#webpack-dev-server-client-overlay`) and throws the real
 cause — compiler message or runtime stack — instead of letting it surface as

@@ -82,8 +82,10 @@ export class KPayPage extends AppShellPage {
   async expectRouteNotImplemented(): Promise<void> {
     await test.step('Expect /kpay to render the 404 page', async () => {
       await this.page.goto(this.path, { waitUntil: 'domcontentloaded' });
-      await expect(this.notFoundImage).toBeVisible();
+      // Text first: it renders immediately, while the 404 GIF can report
+      // itself invisible until the media finishes streaming.
       await expect(this.notFoundMessage).toBeVisible();
+      await expect(this.notFoundImage).toBeVisible();
     });
   }
 }
