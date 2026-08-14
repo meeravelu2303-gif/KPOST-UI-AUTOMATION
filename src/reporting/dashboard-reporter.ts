@@ -44,6 +44,7 @@
  * for free if the dashboard ever adds support, and none of the honesty depends on
  * them — the count gap and the local warning carry that on their own.
  */
+import fs from 'node:fs/promises';
 import type {
   FullConfig,
   FullResult,
@@ -59,6 +60,26 @@ import { writeDevDigest } from './dev-digest';
 import { type DefectSighting, buildRunModel, verdict } from './run-model';
 
 const UPLOAD_TIMEOUT_MS = 15_000;
+/** Evidence upload is a second round trip; give it its own, longer budget. */
+const ATTACHMENT_TIMEOUT_MS = 60_000;
+/**
+ * Per-defect ceiling. A defect sighted across four browser projects yields four
+ * screenshots and four videos, which is useful; a defect sighted by fifty tests
+ * would upload a hundred files that nobody opens. The cap keeps the dashboard's
+ * Evidence panel readable and the upload bounded.
+ */
+const MAX_FILES_PER_DEFECT = 12;
+/** The kinds Playwright emits that are worth keeping. */
+const WANTED_ATTACHMENTS = new Set(['screenshot', 'video', 'trace']);
+
+/** One evidence file Playwright captured, tagged with where it came from. */
+interface DefectFile {
+  readonly kind: string;
+  readonly path: string;
+  readonly contentType: string;
+  readonly project: string;
+  readonly testTitle: string;
+}
 
 export default class DashboardReporter implements Reporter {
   private startedAt = 0;
@@ -68,7 +89,10 @@ export default class DashboardReporter implements Reporter {
   private readonly begun = new Set<string>();
   /** Terminal status of each test's LAST attempt, keyed by test id. */
   private readonly outcomes = new Map<string, string>();
-  private readonly sightings = new Map<string, { defect: KnownDefect; seen: DefectSighting[] }>();
+  private readonly sightings = new Map<
+    string,
+    { defect: KnownDefect; seen: DefectSighting[]; files: DefectFile[] }
+  >();
 
   onBegin(config: FullConfig, suite: Suite): void {
     this.startedAt = Date.now();
@@ -105,12 +129,29 @@ export default class DashboardReporter implements Reporter {
         annotation.description?.startsWith(`${known.id} `),
       );
       if (!defect) continue;
-      const entry = this.sightings.get(defect.id) ?? { defect, seen: [] };
+      const project = test.parent.project()?.name ?? 'unknown';
+      const entry = this.sightings.get(defect.id) ?? { defect, seen: [], files: [] };
       entry.seen.push({
         testTitle: test.title,
-        project: test.parent.project()?.name ?? 'unknown',
+        project,
         status: result.status,
       });
+      /*
+       * The screenshot/video/trace this test just produced belongs to the defect it
+       * just sighted — this is the only place both facts are in scope. Playwright
+       * writes them to `outputDir` under the retention rules in playwright.config.ts
+       * (`only-on-failure` / `retain-on-failure`), so a clean run contributes none.
+       */
+      for (const attachment of result.attachments) {
+        if (!attachment.path || !WANTED_ATTACHMENTS.has(attachment.name)) continue;
+        entry.files.push({
+          kind: attachment.name,
+          path: attachment.path,
+          contentType: attachment.contentType,
+          project,
+          testTitle: test.title,
+        });
+      }
       this.sightings.set(defect.id, entry);
     }
   }
@@ -165,12 +206,14 @@ export default class DashboardReporter implements Reporter {
       console.warn(`[reports] could not write the file reports: ${messageOf(error)}`);
     }
 
-    await this.push(model);
+    // Evidence hangs off a defect, so it can only be uploaded once the run POST
+    // has created those defects. A failed or skipped push means nothing to attach to.
+    if (await this.push(model)) await this.pushAttachments();
   }
 
-  private async push(model: ReturnType<typeof buildRunModel>): Promise<void> {
+  private async push(model: ReturnType<typeof buildRunModel>): Promise<boolean> {
     const { ingestUrl, apiKey } = env.dashboard;
-    if (!ingestUrl || !apiKey) return;
+    if (!ingestUrl || !apiKey) return false;
 
     const payload = {
       generatedAt: model.generatedAt,
@@ -206,7 +249,7 @@ export default class DashboardReporter implements Reporter {
       if (!response.ok) {
         const detail = (await response.text().catch(() => '')).slice(0, 300);
         console.warn(`[dashboard] ingest rejected the run: HTTP ${response.status} ${detail}`);
-        return;
+        return false;
       }
 
       const body = (await response.json().catch(() => ({}))) as {
@@ -228,12 +271,101 @@ export default class DashboardReporter implements Reporter {
       for (const warning of body.warnings ?? []) {
         console.warn(`[dashboard] ⚠ flagged this run: ${warning}`);
       }
+      return true;
     } catch (error) {
       // Never fail the suite over reporting — the html/json/junit reports and the
       // BUG_REPORT/DEV_DIGEST files already captured everything locally.
       console.warn(
         `[dashboard] could not reach ${ingestUrl}: ${messageOf(error)}. ` +
           'The run is still recorded in BUG_REPORT.md and playwright-report/.',
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Uploads each defect's screenshots, videos and traces to the dashboard, so the
+   * evidence sits next to the defect instead of only in `test-results/` on
+   * whichever machine happened to run the suite.
+   *
+   * One request per defect. Failures are logged and swallowed for the same reason
+   * the run push is: the artifacts are already on disk and in the HTML report, so
+   * a dashboard problem must not colour the suite's result.
+   */
+  private async pushAttachments(): Promise<void> {
+    const { ingestUrl, apiKey } = env.dashboard;
+    if (!ingestUrl || !apiKey) return;
+
+    const withFiles = [...this.sightings.values()].filter((entry) => entry.files.length > 0);
+    if (withFiles.length === 0) return;
+
+    const base = ingestUrl.replace(/\/+$/, '');
+    let uploaded = 0;
+    let failed = 0;
+
+    for (const entry of withFiles) {
+      const capped = entry.files.slice(0, MAX_FILES_PER_DEFECT);
+      const form = new FormData();
+      let attached = 0;
+
+      for (const file of capped) {
+        /*
+         * A retried test can report an artifact that was cleaned up between
+         * attempts, so a missing file is normal rather than an error — skip it and
+         * keep the rest of the defect's evidence.
+         */
+        const bytes = await fs.readFile(file.path).catch(() => null);
+        if (!bytes) continue;
+        // The dashboard replaces on (defect, kind, filename). Four browser projects
+        // sighting one defect would otherwise upload four files called
+        // "screenshot.png" and keep only the last, so the name carries its origin.
+        const name = `${slug(file.project)}--${slug(file.testTitle)}${extensionOf(file.path)}`;
+        form.append(file.kind, new Blob([bytes], { type: file.contentType }), name);
+        attached += 1;
+      }
+
+      if (attached === 0) continue;
+
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), ATTACHMENT_TIMEOUT_MS);
+        const response = await fetch(
+          `${base}/defects/${encodeURIComponent(entry.defect.id)}/attachments`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}` },
+            body: form,
+            signal: controller.signal,
+          },
+        );
+        clearTimeout(timer);
+
+        if (!response.ok) {
+          failed += 1;
+          const detail = (await response.text().catch(() => '')).slice(0, 200);
+          console.warn(
+            `[dashboard] evidence for ${entry.defect.id} rejected: HTTP ${response.status} ${detail}`,
+          );
+          continue;
+        }
+        const body = (await response.json().catch(() => ({}))) as { stored?: number };
+        uploaded += body.stored ?? attached;
+        if (entry.files.length > capped.length) {
+          console.info(
+            `[dashboard] ${entry.defect.id}: uploaded the first ${capped.length} of ` +
+              `${entry.files.length} artifacts (per-defect cap).`,
+          );
+        }
+      } catch (error) {
+        failed += 1;
+        console.warn(`[dashboard] evidence for ${entry.defect.id} not uploaded: ${messageOf(error)}`);
+      }
+    }
+
+    if (uploaded > 0) {
+      console.info(
+        `[dashboard] evidence uploaded: ${uploaded} file(s) across ${withFiles.length} defect(s)` +
+          (failed > 0 ? ` (${failed} defect(s) failed)` : ''),
       );
     }
   }
@@ -249,4 +381,22 @@ function messageOf(error: unknown): string {
 
 function relative(absolute: string): string {
   return absolute.split(/[\\/]/).pop() ?? absolute;
+}
+
+/** Filename-safe fragment of a project or test title, short enough to stay readable. */
+function slug(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'unknown'
+  );
+}
+
+/** `.webm` from `…/video.webm`; empty when the artifact has no extension. */
+function extensionOf(filePath: string): string {
+  const name = filePath.split(/[\\/]/).pop() ?? '';
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot) : '';
 }
