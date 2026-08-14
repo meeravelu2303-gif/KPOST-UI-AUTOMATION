@@ -1,9 +1,10 @@
 /**
  * Writes `BUG_REPORT.json` and `BUG_REPORT.md` — the developer deliverable.
  *
- * These are committed (see `.gitignore`), exactly as in the API bench: they are the
- * document a developer is handed and the diff a reviewer reads, so they belong in
- * version control while `playwright-report/` (225 MB of traces per run) does not.
+ * These are gitignored generated artifacts (see `.gitignore`). This diverges from
+ * the API bench, which commits its `BUG_REPORT.*`: there the report is the artefact
+ * under review, here it is regenerated whole by every run and handed over per run,
+ * so committing it produces diff churn and a file that is stale between runs.
  *
  * `BUG_REPORT.json` carries the same field names the API bench uses — `generatedAt`,
  * `environment`, `baseURL`, `run`, `summary`, `defects[]` — so a consumer that reads

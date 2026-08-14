@@ -18,15 +18,28 @@ browser projects — chromium, firefox, webkit, mobile-chrome. **59 specs × 4 p
 
 Every run produces, automatically:
 
-1. **`BUG_REPORT.md` / `BUG_REPORT.json`** — the application defects the run observed
-   (committed; the developer deliverable).
-2. **`DEV_DIGEST.md` / `.json`** — the one-screen triage summary (gitignored; derived).
+1. **`BUG_REPORT.md` / `BUG_REPORT.json`** — the application defects the run observed;
+   the developer deliverable.
+2. **`DEV_DIGEST.md` / `.json`** — the one-screen triage summary.
 3. **`playwright-report/`** — Playwright's own HTML report with traces, video and
-   screenshots (gitignored; ~225 MB per run — the deep-trace reference).
+   screenshots (~225 MB per run — the deep-trace reference).
 4. **A POST to the external QA Dashboard** under application slug `kpost-ui`.
 
 All four come from one in-memory run model (`src/reporting/run-model.ts`), so they
 cannot disagree about what happened.
+
+**All of it is generated and gitignored.** Every run rewrites the report files whole,
+so nothing in the repo can go stale and no report is ever half of one run and half of
+another. The corollary: a report exists only until the next run overwrites it. To keep
+one — to attach to a ticket, or to compare against a later run — copy it out before
+re-running:
+
+```bash
+cp BUG_REPORT.md "../kpost-ui-$(date +%Y%m%d-%H%M).md"
+```
+
+The QA Dashboard is the durable record: it keeps every run it received, so the history
+lives there rather than in this working tree.
 
 ---
 
@@ -82,26 +95,24 @@ accounts exist, use `npm run test:serial`.
 
 ## 4. Reports
 
-### `BUG_REPORT.md` — the bug ledger *(root, committed, automatic)*
+### `BUG_REPORT.md` — the bug ledger *(root, generated, automatic)*
 
 Executive summary, defect counts by severity and module, an index table, then full
 detail per defect: evidence, expected behaviour, and which tests observed it in this
 run. Hand this to a developer as-is.
 
-### `BUG_REPORT.json` — machine twin *(root, committed, automatic)*
+### `BUG_REPORT.json` — machine twin *(root, generated, automatic)*
 
 Same content, same field names as the API bench's (`generatedAt`, `environment`,
 `baseURL`, `run`, `summary`, `defects[]`). Its `defects[]` objects already satisfy the
 dashboard's ingest contract, which is why the pushed payload is a projection of this
 document rather than a separately-built one.
 
-### `DEV_DIGEST.md` / `.json` — triage summary *(root, gitignored, automatic)*
+### `DEV_DIGEST.md` / `.json` — triage summary *(root, generated, automatic)*
 
 One screen: verdict, execution table, the defects seen. `npm run digest` prints it.
-Gitignored because it is derived from `BUG_REPORT.*` — committing it would just create
-a second file that can go stale.
 
-### `playwright-report/` — traces *(gitignored, automatic)*
+### `playwright-report/` — traces *(generated, automatic)*
 
 `npm run report` opens it (port 9324). Failure traces, screenshots and video. This is
 where you go after the digest tells you *which* test to look at.

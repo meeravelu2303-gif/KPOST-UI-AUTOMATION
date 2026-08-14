@@ -72,7 +72,7 @@ KPOST-UI-AUTOMATION/
 │   │   └── fixtures.ts             # Custom test/expect: injects page objects + session state
 │   ├── reporting/
 │   │   ├── run-model.ts            # ONE model of a finished run — every report is a projection of it
-│   │   ├── bug-report.ts           # Writes BUG_REPORT.json / BUG_REPORT.md (committed deliverable)
+│   │   ├── bug-report.ts           # Writes BUG_REPORT.json / BUG_REPORT.md (the developer deliverable)
 │   │   ├── dev-digest.ts           # Writes DEV_DIGEST.md / .json (one-screen triage)
 │   │   └── dashboard-reporter.ts   # Builds the model, writes the files, POSTs to the QA Dashboard
 │   ├── utils/
@@ -105,7 +105,7 @@ KPOST-UI-AUTOMATION/
 ├── docs/archive/                   # Point-in-time analyses kept for reference
 ├── OPERATIONS.md                   # Operations manual: commands, reports, delivery, troubleshooting
 ├── CLAUDE.md                       # Repo working contract (conventions, how to add tests/POMs)
-├── BUG_REPORT.md / .json           # (committed, generated) the developer deliverable
+├── BUG_REPORT.md / .json           # (gitignored, generated) the developer deliverable
 ├── DEV_DIGEST.md / .json           # (gitignored, generated) one-screen triage summary
 ├── .auth/                          # (gitignored) persisted storageState from globalSetup
 ├── playwright-report/              # (gitignored) HTML report + traces
@@ -201,12 +201,15 @@ so CI can run fast smoke checks on every PR and full regression nightly.
 Every run produces four things, all projected from **one** run model
 (`src/reporting/run-model.ts`) so they cannot disagree:
 
-| Artifact | Committed? | What it is |
-| --- | --- | --- |
-| `BUG_REPORT.md` / `.json` | **yes** | The application defects this run observed, ticket-ready. The deliverable you hand a developer. Same schema as the API bench's. |
-| `DEV_DIGEST.md` / `.json` | no (derived) | One screen: verdict, execution table, defects seen. `npm run digest`. |
-| `playwright-report/` | no | Playwright's own HTML report — traces, video, screenshots. `npm run report`. |
-| QA Dashboard row | — | POSTed automatically under application slug **`kpost-ui`**. |
+| Artifact | What it is |
+| --- | --- |
+| `BUG_REPORT.md` / `.json` | The application defects this run observed, ticket-ready. The deliverable you hand a developer. Same schema as the API bench's. |
+| `DEV_DIGEST.md` / `.json` | One screen: verdict, execution table, defects seen. `npm run digest`. |
+| `playwright-report/` | Playwright's own HTML report — traces, video, screenshots. `npm run report`. |
+| QA Dashboard row | POSTed automatically under application slug **`kpost-ui`**. |
+
+All four are **generated and gitignored** — each run rewrites them whole, so the
+repo never carries a stale report. Deliver them per run (see `OPERATIONS.md`).
 
 The dashboard push is fail-safe by construction: unset `DASHBOARD_INGEST_URL` /
 `DASHBOARD_API_KEY` → clean no-op; 15-second timeout; an outage warns and never

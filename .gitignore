@@ -11,9 +11,13 @@ node_modules/
 /playwright/.cache/
 /blob-report/
 
-# Generated per-run digest. BUG_REPORT.md / BUG_REPORT.json are deliberately NOT
-# ignored — they are the deliverable this suite hands to developers and are
-# meant to be reviewed in diffs, exactly as in the API bench.
+# Generated per-run reports. All four are regenerated whole by every run, so
+# committing them only produces churn in diffs and a stale file whenever someone
+# reads the repo between runs. This deliberately diverges from the API bench,
+# which commits BUG_REPORT.*: there the report IS the deliverable under review,
+# here it is handed over per run (see OPERATIONS.md → "Reports").
+BUG_REPORT.md
+BUG_REPORT.json
 DEV_DIGEST.md
 DEV_DIGEST.json
 

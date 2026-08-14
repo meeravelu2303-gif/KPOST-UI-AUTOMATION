@@ -171,9 +171,13 @@ builds **one** run model and projects it four ways:
 | File | Role |
 | --- | --- |
 | `run-model.ts` | The model. Pure — counts, completeness verdict, defect sightings. No I/O. |
-| `bug-report.ts` | `BUG_REPORT.json` + `.md` — **committed**, the developer deliverable, same schema as the API bench's. |
-| `dev-digest.ts` | `DEV_DIGEST.md` + `.json` — gitignored (derived), one-screen triage. `npm run digest`. |
+| `bug-report.ts` | `BUG_REPORT.json` + `.md` — the developer deliverable, same schema as the API bench's. |
+| `dev-digest.ts` | `DEV_DIGEST.md` + `.json` — one-screen triage. `npm run digest`. |
 | `dashboard-reporter.ts` | Orchestrates, then POSTs to `$DASHBOARD_INGEST_URL` (Bearer key, slug `kpost-ui`). |
+
+All four report files are **generated and gitignored** — every run rewrites them
+whole, so the repo carries no stale copy. (The API bench commits its
+`BUG_REPORT.*`; this bench deliberately does not.)
 
 The API bench splits files and push across two reporters and documents an
 ordering rule to keep them in step. Building one model and projecting it removes
