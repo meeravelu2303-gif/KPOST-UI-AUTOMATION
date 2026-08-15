@@ -12,9 +12,9 @@ for the full tour, `OPERATIONS.md` for running it and delivering its reports,
 `docs/archive/TEST-BENCH-REPORT.md` for the archived state-of-the-bench analysis,
 and this file for the working contract.
 
-**Current size:** 10 page objects · 11 spec files · 63 tests · 4 browser projects
-(chromium, firefox, webkit, mobile-chrome) = **252 tests planned per full run**.
-That 252 is the number every report calls `totalTests`; confirm it with
+**Current size:** 11 page objects · 12 spec files · 64 tests · 4 browser projects
+(chromium, firefox, webkit, mobile-chrome) = **256 tests planned per full run**.
+That 256 is the number every report calls `totalTests`; confirm it with
 `npm run test:list` after adding specs.
 
 ## The app under test — verified ground truth
@@ -104,8 +104,10 @@ and renders a dead, shell-less page instead of redirecting to `/login`. The
    Never wait for `networkidle` on this app (see above).
 3. **Locators, in order of preference:** `getByRole` → `getByLabel` →
    `getByPlaceholder` → `getByText` → `getByTestId`. CSS only where the product
-   exposes no accessible name at all — today that is exactly one place, the icon
-   rail in `AppShellPage`. Declare every locator once, in the constructor.
+   exposes no accessible name at all — today that is exactly two places, the icon
+   rail in `AppShellPage` and the composer fields in `WriteMailPage`. Both are
+   product accessibility defects rather than locator style choices, which is why
+   `tests/a11y/` scans them. Declare every locator once, in the constructor.
 4. **Web-first assertions only** (`await expect(locator).toBeVisible()`), never
    `expect(await locator.isVisible())`.
 5. **Wrap every page-object method body in `test.step()`** with a business-level
@@ -148,14 +150,19 @@ and renders a dead, shell-less page instead of redirecting to `/login`. The
 | Add a report artifact | `src/reporting/<name>.ts`, fed the model by `dashboard-reporter.ts` |
 | Add tests | `tests/<area>/<name>.spec.ts` |
 
-Areas in use: `a11y/`, `auth/`, `home/`, `kmail/`, `kdirectory/`, `katchup/`,
+Areas in use: `a11y/`, `auth/`, `home/`, `kmail/`, `writemail/`, `kdirectory/`, `katchup/`,
 `settings/`, `kecommerce/`, `knews/`, `kpay/`.
 
 Class hierarchy: `BasePage` (framework-generic) → `AppShellPage` (KPost chrome:
 launcher, rail, language picker, logout) → `HomePage` / `KMailPage` /
-`KDirectoryPage` / `KatchupPage` / `SettingsPage` / `KEcommercePage` /
-`KNewsPage` / `KPayPage`. `LoginPage` extends `BasePage` directly — there is no
-shell before sign-in.
+`WriteMailPage` / `KDirectoryPage` / `KatchupPage` / `SettingsPage` /
+`KEcommercePage` / `KNewsPage` / `KPayPage`. `LoginPage` extends `BasePage`
+directly — there is no shell before sign-in.
+
+`KMailPage` and `WriteMailPage` split along the product's own seam: KMail has no
+composer, so composing (and the send verdict) is `WriteMailPage`, while the Sent
+folder stays on `KMailPage`. A spec that sends a mail and then confirms it
+landed legitimately uses both.
 
 **Defect annotations reach every reporter.** `noteKnownDefect()` lands in the
 HTML report (annotation on the test page), `results.json`
@@ -194,7 +201,7 @@ still maps.
 
 **Report honestly — the rules that are not negotiable.**
 
-- `totalTests` is what Playwright **planned** (`suite.allTests().length` = 252),
+- `totalTests` is what Playwright **planned** (`suite.allTests().length` = 256),
   never what finished. When a run is cut short, the gap between planned and
   accounted IS the signal — the dashboard's `assessRunReport()` flags exactly
   that. Never shrink the total to match, never scale the counts up to the plan.
@@ -227,7 +234,7 @@ feature, so treat anything it reports as a genuine app defect.
 
 | Fixture | Scope | Gives you |
 | --- | --- | --- |
-| `loginPage` `homePage` `kmailPage` `kdirectoryPage` `katchupPage` `settingsPage` `kecommercePage` `knewsPage` `kpayPage` | test | Page objects bound to the current page |
+| `loginPage` `homePage` `kmailPage` `writeMailPage` `kdirectoryPage` `katchupPage` `settingsPage` `kecommercePage` `knewsPage` `kpayPage` | test | Page objects bound to the current page |
 | `directoryUser` | test | The pre-onboarded directory account when configured, else the standard user |
 | `anonymousPage` | test | A `Page` in a fresh, logged-out context |
 | `standardUser` / `adminUser` | test | Credentials from `env` |
@@ -335,7 +342,7 @@ npm run test:smoke                         # @smoke only
 npm run test:serial                        # workers=1 — required for app-dependent runs
 npm run test:ui                            # time-travel debugging
 npm run test:unit                          # vitest — pure logic, no browser/app/account needed
-npm run test:list                          # enumerate (252) without running
+npm run test:list                          # enumerate (256) without running
                                            # ⚠ DESTRUCTIVE: the html/json/junit reporters still
                                            # fire on a listing run and overwrite playwright-report/,
                                            # results.json and junit.xml with empty output. Only the
@@ -380,8 +387,11 @@ that it passes.
   longer blocks any test — the suite dismisses the dev overlay and verifies the
   tabs beneath — but the uncaught error is still real, and in production the
   unopened-mail feature would fail silently.
-- **Give "Write Mail" its own page object and specs**; it, not KMail, is where
-  composing happens.
+- **Verify the relocated Write Mail specs still pass.** `WriteMailPage` and
+  `tests/writemail/` were extracted from `KMailPage` without the app running, so
+  the *move* is unverified even though the logic it carries was verified live on
+  2026-08-12. The one genuinely new case — "the composer exposes recipient,
+  subject and body fields" — has never executed.
 - **Provision a pre-onboarded KDirectory user.** The plumbing is done — set
   `DIRECTORY_USER_EMAIL` / `DIRECTORY_USER_PASSWORD` and the three gated specs
   run. Only the account itself is missing. First run against a real one, narrow

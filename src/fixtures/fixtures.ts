@@ -19,6 +19,7 @@ import { test as base, expect, type Page } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
 import { HomePage } from '../pages/HomePage';
 import { KMailPage } from '../pages/KMailPage';
+import { WriteMailPage } from '../pages/WriteMailPage';
 import { KDirectoryPage } from '../pages/KDirectoryPage';
 import { KatchupPage } from '../pages/KatchupPage';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -35,6 +36,7 @@ interface KPostFixtures {
   loginPage: LoginPage;
   homePage: HomePage;
   kmailPage: KMailPage;
+  writeMailPage: WriteMailPage;
   kdirectoryPage: KDirectoryPage;
   katchupPage: KatchupPage;
   settingsPage: SettingsPage;
@@ -88,6 +90,10 @@ export const test = base.extend<KPostFixtures, KPostWorkerFixtures>({
 
   kmailPage: async ({ page }, use) => {
     await use(new KMailPage(page));
+  },
+
+  writeMailPage: async ({ page }, use) => {
+    await use(new WriteMailPage(page));
   },
 
   kdirectoryPage: async ({ page }, use) => {
