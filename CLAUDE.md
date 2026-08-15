@@ -140,6 +140,7 @@ and renders a dead, shell-less page instead of redirecting to `/login`. The
 | Talk to the API (auth, seeding) | `src/utils/api-helpers.ts` |
 | Inject a new page object / state | `src/fixtures/fixtures.ts` |
 | Add test data | `src/data/*.json` (static) or `src/data/factories/*` (per-test) |
+| Unit-test pure logic (no browser) | `src/**/*.test.ts` — vitest, e.g. `src/reporting/run-model.test.ts` |
 | Add a domain type | `src/types/index.ts` |
 | Register an app defect | `src/utils/known-defects.ts` + `noteKnownDefect()` in the test |
 | Change what a report says | `src/reporting/run-model.ts` first — the files and the dashboard payload are projections of it |
@@ -332,11 +333,17 @@ npm test                                   # full suite, all browsers
 npm run test:smoke                         # @smoke only
 npm run test:serial                        # workers=1 — required for app-dependent runs
 npm run test:ui                            # time-travel debugging
-npm run test:list                          # enumerate (236) without running — reports nothing
+npm run test:unit                          # vitest — pure logic, no browser/app/account needed
+npm run test:list                          # enumerate (236) without running
+                                           # ⚠ DESTRUCTIVE: the html/json/junit reporters still
+                                           # fire on a listing run and overwrite playwright-report/,
+                                           # results.json and junit.xml with empty output. Only the
+                                           # dashboard reporter guards against it. Do not list a run
+                                           # you still need the HTML report for.
 npm run report                             # Playwright HTML report: traces, video
 npm run digest                             # print DEV_DIGEST.md — fastest read on a run
 npm run codegen                            # record real KPost selectors
-npm run ci                                 # typecheck → lint → test (the gate)
+npm run ci                                 # typecheck → lint → unit → e2e (the gate)
 ```
 
 Per-area (`test:kmail`, `test:kpay`, …) and per-browser (`test:chromium`,
@@ -346,8 +353,12 @@ Per-area (`test:kmail`, `test:kpay`, …) and per-browser (`test:chromium`,
 ## Before you push
 
 Run `npm run ci` (or at minimum `npm run typecheck && npm run lint &&
-npx playwright test --list`). Typecheck and lint must be **clean — zero errors
-and zero warnings**; they are today, keep them that way.
+npm run test:unit`). Typecheck, lint and the unit suite must be **clean — zero
+errors, zero warnings, 31/31 passing**; they are today, keep them that way.
+
+Prefer `npm run test:unit` over `npx playwright test --list` as the cheap
+pre-push check: it needs no app and, unlike `--list`, does not overwrite the
+previous run's HTML report.
 
 ## CI shape
 

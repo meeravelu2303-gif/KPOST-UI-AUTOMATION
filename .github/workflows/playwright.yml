@@ -22,7 +22,14 @@ concurrency:
 #   STANDARD_USER_PASSWORD  seeded standard test-user password
 #   ADMIN_USER_EMAIL        seeded admin test-user email
 #   ADMIN_USER_PASSWORD     seeded admin test-user password
+#   DASHBOARD_INGEST_URL    QA Monitor ingest endpoint, reachable FROM the runner
+#   DASHBOARD_API_KEY       bearer key for that endpoint
 # Never hard-code credentials in this file.
+#
+# The two DASHBOARD_* secrets must be set together or `env.ts` fails fast; leave
+# both unset and the reporter no-ops cleanly, writing files but posting nothing.
+# Note a GitHub-hosted runner cannot reach a dashboard on localhost — either host
+# QA Monitor somewhere the runner can resolve, or use a self-hosted runner.
 # ---------------------------------------------------------------------------
 env:
   BASE_URL: https://localhost:3000
@@ -30,10 +37,16 @@ env:
 jobs:
   # -------------------------------------------------------------------------
   # Stage 1 — Static quality gate. Fast, no browsers, no app. Fails the build
-  # early on type errors or lint violations before spending CI on browsers.
+  # early on type errors, lint violations or a broken reporting engine before
+  # spending CI on browsers.
+  #
+  # The unit suite covers `src/reporting/run-model.ts`, which decides what every
+  # report and the QA dashboard claim about a run. It needs no app and no test
+  # account, so unlike the stages below it runs on every push TODAY — it is not
+  # gated on KPOST_START_CMD.
   # -------------------------------------------------------------------------
   static:
-    name: Typecheck & Lint
+    name: Typecheck, Lint & Unit
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -48,6 +61,8 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
+      - name: Unit tests (reporting engine)
+        run: npm run test:unit
 
   # -------------------------------------------------------------------------
   # Stage 2 — Smoke. Chromium only, @smoke-tagged tests. Gives PRs a fast
@@ -69,6 +84,9 @@ jobs:
       STANDARD_USER_PASSWORD: ${{ secrets.STANDARD_USER_PASSWORD }}
       ADMIN_USER_EMAIL: ${{ secrets.ADMIN_USER_EMAIL }}
       ADMIN_USER_PASSWORD: ${{ secrets.ADMIN_USER_PASSWORD }}
+      # Without these the run is reported locally but never reaches QA Monitor.
+      DASHBOARD_INGEST_URL: ${{ secrets.DASHBOARD_INGEST_URL }}
+      DASHBOARD_API_KEY: ${{ secrets.DASHBOARD_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -134,6 +152,10 @@ jobs:
       STANDARD_USER_PASSWORD: ${{ secrets.STANDARD_USER_PASSWORD }}
       ADMIN_USER_EMAIL: ${{ secrets.ADMIN_USER_EMAIL }}
       ADMIN_USER_PASSWORD: ${{ secrets.ADMIN_USER_PASSWORD }}
+      # Each matrix leg posts its own run, so QA Monitor records one row per
+      # browser rather than one row per push — see the note in OPERATIONS.md.
+      DASHBOARD_INGEST_URL: ${{ secrets.DASHBOARD_INGEST_URL }}
+      DASHBOARD_API_KEY: ${{ secrets.DASHBOARD_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

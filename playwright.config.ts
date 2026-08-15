@@ -40,6 +40,17 @@ export default defineConfig({
   /* Cap workers on CI for stable, reproducible timing; use all cores locally. */
   workers: env.workers ?? (env.isCI ? 2 : undefined),
 
+  /* Stop a CI run once it is obviously not going to tell us anything new.
+     When the app fails to boot, all 236 tests fail one after another and the
+     build spends ~25 minutes proving the same point; 25 failures is already a
+     conclusive answer. Zero means "no limit", which stays the local default —
+     developers debugging a module want the whole picture, not an early exit.
+
+     The run model already handles the consequence honestly: an aborted run
+     leaves planned > accounted, so it is reported as INCOMPLETE rather than as
+     a small clean run. That is the intended reading, not a side effect. */
+  maxFailures: env.isCI ? 25 : 0,
+
   /* Reporters: HTML for humans (the deep-trace reference — `npm run report`),
      list for the terminal, JSON + JUnit for CI systems, and the bench's own
      reporting engine.
