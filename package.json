@@ -46,6 +46,7 @@
     "ci": "npm run typecheck && npm run lint && npm run test:unit && npm run test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@faker-js/faker": "^9.3.0",
     "@playwright/test": "^1.49.1",
     "@types/node": "^22.10.5",

@@ -13,8 +13,8 @@ what to do when a run comes back wrong. Mirrors `OPERATIONS.md` in the API bench
 ## 1. What this bench does
 
 Drives the KPost React app (`https://localhost:3000`) through Playwright across four
-browser projects — chromium, firefox, webkit, mobile-chrome. **59 specs × 4 projects
-= 236 tests.**
+browser projects — chromium, firefox, webkit, mobile-chrome. **63 specs × 4 projects
+= 252 tests.**
 
 Every run produces, automatically:
 
@@ -66,7 +66,7 @@ matter operationally:
 ## 3. Running tests
 
 ```bash
-npm test                  # everything, all four projects (236 tests)
+npm test                  # everything, all four projects (252 tests)
 npm run test:serial       # workers=1 — REQUIRED for app-dependent runs, see below
 npm run test:smoke        # @smoke only
 npm run test:regression   # @regression only
@@ -146,20 +146,20 @@ never invent an entry to explain a failure you have not reproduced.
 ## 6. When a run comes back incomplete
 
 This is the failure mode worth knowing by name. A degraded app can kill a run after a
-handful of tests. Ten tests that pass out of 236 planned is **not** a small green run,
+handful of tests. Ten tests that pass out of 252 planned is **not** a small green run,
 and this bench refuses to let it look like one.
 
 **How it shows up.** In the terminal, before any pass rate:
 
 ```
-[dashboard] ⚠ run INCOMPLETE: 10/236 tests reached a result (status=interrupted). Dashboard will flag this run.
+[dashboard] ⚠ run INCOMPLETE: 10/252 tests reached a result (status=interrupted). Dashboard will flag this run.
 [dashboard]   - Playwright ended the run with status "interrupted" — it stopped before working through the plan.
-[dashboard]   - 10 of 236 planned tests reached a result; 226 never produced one.
+[dashboard]   - 10 of 252 planned tests reached a result; 242 never produced one.
 [dashboard]   Counts are reported as observed — nothing is scaled to the plan.
 ```
 
 `BUG_REPORT.md` and `DEV_DIGEST.md` both open with an **⚠ INCOMPLETE RUN** banner. On
-the dashboard the run is flagged suspect, because it receives `totalTests: 236` with
+the dashboard the run is flagged suspect, because it receives `totalTests: 252` with
 only 10 accounted for and its own consistency check catches the gap. Any warning the
 dashboard returns is echoed back into your terminal.
 

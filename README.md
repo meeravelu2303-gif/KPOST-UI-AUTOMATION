@@ -88,7 +88,7 @@ KPOST-UI-AUTOMATION/
 │   │       └── postFactory.ts      # Unique posts per test (no collisions in parallel)
 │   └── types/
 │       └── index.ts                # Shared domain models (User, Post, Toast, …)
-├── tests/                             # 59 specs × 4 browser projects = 236 tests
+├── tests/                             # 63 specs × 4 browser projects = 252 tests
 │   ├── auth/
 │   │   ├── login.spec.ts           # Valid/invalid/validation (data-driven), runs logged-out
 │   │   └── logout.spec.ts          # Logout + protected-route redirect
@@ -181,7 +181,7 @@ npm test
 | `npm run test:regression` | Tests tagged `@regression` |
 | `npm run test:serial` | `--workers=1` — **required** for app-dependent runs |
 | `npm run test:auth` | Only `tests/auth` (also `:home`, `:kmail`, `:kdirectory`, `:katchup`, `:settings`, `:kecommerce`, `:knews`, `:kpay`) |
-| `npm run test:list` | Enumerate the 236 tests without executing (reports nothing) |
+| `npm run test:list` | Enumerate the 252 tests without executing (reports nothing) |
 | `npm run report` | Open the last HTML report (traces, video) |
 | `npm run digest` | Print `DEV_DIGEST.md` — the fastest read on a run |
 | `npm run codegen` | Record selectors against the app |
@@ -216,8 +216,8 @@ The dashboard push is fail-safe by construction: unset `DASHBOARD_INGEST_URL` /
 fails the run; a listing run posts nothing.
 
 **Truncated runs are reported as truncated.** `totalTests` is always what
-Playwright *planned* (236), never what happened to finish. If a degraded app kills
-a run after ten tests, the payload says `totalTests: 236` with ten accounted for —
+Playwright *planned* (252), never what happened to finish. If a degraded app kills
+a run after ten tests, the payload says `totalTests: 252` with ten accounted for —
 the terminal prints a `⚠ run INCOMPLETE` warning, both file reports open with an
 INCOMPLETE banner, and the dashboard flags the run. Counts are never rescaled to
 close the gap. See `OPERATIONS.md` → *When a run comes back incomplete*.

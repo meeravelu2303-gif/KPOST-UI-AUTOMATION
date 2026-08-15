@@ -12,9 +12,9 @@ for the full tour, `OPERATIONS.md` for running it and delivering its reports,
 `docs/archive/TEST-BENCH-REPORT.md` for the archived state-of-the-bench analysis,
 and this file for the working contract.
 
-**Current size:** 10 page objects · 10 spec files · 59 tests · 4 browser projects
-(chromium, firefox, webkit, mobile-chrome) = **236 tests planned per full run**.
-That 236 is the number every report calls `totalTests`; confirm it with
+**Current size:** 10 page objects · 11 spec files · 63 tests · 4 browser projects
+(chromium, firefox, webkit, mobile-chrome) = **252 tests planned per full run**.
+That 252 is the number every report calls `totalTests`; confirm it with
 `npm run test:list` after adding specs.
 
 ## The app under test — verified ground truth
@@ -141,13 +141,14 @@ and renders a dead, shell-less page instead of redirecting to `/login`. The
 | Inject a new page object / state | `src/fixtures/fixtures.ts` |
 | Add test data | `src/data/*.json` (static) or `src/data/factories/*` (per-test) |
 | Unit-test pure logic (no browser) | `src/**/*.test.ts` — vitest, e.g. `src/reporting/run-model.test.ts` |
+| Scan a screen for accessibility | `src/utils/a11y.ts` + a case in `tests/a11y/a11y.spec.ts` |
 | Add a domain type | `src/types/index.ts` |
 | Register an app defect | `src/utils/known-defects.ts` + `noteKnownDefect()` in the test |
 | Change what a report says | `src/reporting/run-model.ts` first — the files and the dashboard payload are projections of it |
 | Add a report artifact | `src/reporting/<name>.ts`, fed the model by `dashboard-reporter.ts` |
 | Add tests | `tests/<area>/<name>.spec.ts` |
 
-Areas in use: `auth/`, `home/`, `kmail/`, `kdirectory/`, `katchup/`,
+Areas in use: `a11y/`, `auth/`, `home/`, `kmail/`, `kdirectory/`, `katchup/`,
 `settings/`, `kecommerce/`, `knews/`, `kpay/`.
 
 Class hierarchy: `BasePage` (framework-generic) → `AppShellPage` (KPost chrome:
@@ -193,7 +194,7 @@ still maps.
 
 **Report honestly — the rules that are not negotiable.**
 
-- `totalTests` is what Playwright **planned** (`suite.allTests().length` = 236),
+- `totalTests` is what Playwright **planned** (`suite.allTests().length` = 252),
   never what finished. When a run is cut short, the gap between planned and
   accounted IS the signal — the dashboard's `assessRunReport()` flags exactly
   that. Never shrink the total to match, never scale the counts up to the plan.
@@ -334,7 +335,7 @@ npm run test:smoke                         # @smoke only
 npm run test:serial                        # workers=1 — required for app-dependent runs
 npm run test:ui                            # time-travel debugging
 npm run test:unit                          # vitest — pure logic, no browser/app/account needed
-npm run test:list                          # enumerate (236) without running
+npm run test:list                          # enumerate (252) without running
                                            # ⚠ DESTRUCTIVE: the html/json/junit reporters still
                                            # fire on a listing run and overwrite playwright-report/,
                                            # results.json and junit.xml with empty output. Only the
@@ -398,6 +399,13 @@ that it passes.
 - **Decide the fate of the blog-era leftovers**: `data/factories/postFactory.ts`,
   `data/posts.json`, the `Post` types, `apiCreatePost`/`apiDeletePost`, and the
   `seedPost` fixture are unused by any spec.
-- **Not yet covered**: accessibility scans, visual regression, file
-  upload/download, and the remaining KPost modules (Kall, KCloud, KBooking,
-  KDOC, Broadcast, My Profile).
+- **Run the accessibility scans against the live app.** `tests/a11y/` and
+  `src/utils/a11y.ts` are written but have **never executed** — the app was not
+  available when they were added, so every locator and expectation in them is
+  conventional, not observed. The first real run is expected to be red: two a11y
+  defects are already documented above (the login overlay, the nameless icon
+  rail). Treat what it finds as application defects — register them in
+  `known-defects.ts` *after* observing them, and never widen `disableRules` or
+  drop a WCAG tag to reach green.
+- **Not yet covered**: visual regression, file upload/download, and the
+  remaining KPost modules (Kall, KCloud, KBooking, KDOC, Broadcast, My Profile).
