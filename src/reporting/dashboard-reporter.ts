@@ -130,7 +130,13 @@ export default class DashboardReporter implements Reporter {
       );
       if (!defect) continue;
       const project = test.parent.project()?.name ?? 'unknown';
-      const entry = this.sightings.get(defect.id) ?? { defect, seen: [], files: [] };
+      /*
+       * Annotated rather than inferred: without it the `??` produces a union of
+       * the stored entry and the fresh literal, and `.push` on a union of array
+       * types intersects its parameters down to `never`.
+       */
+      const entry: { defect: KnownDefect; seen: DefectSighting[]; files: DefectFile[] } =
+        this.sightings.get(defect.id) ?? { defect, seen: [], files: [] };
       entry.seen.push({
         testTitle: test.title,
         project,
@@ -180,6 +186,7 @@ export default class DashboardReporter implements Reporter {
       durationMs: Date.now() - this.startedAt,
       outcomes: this.outcomes,
       sightings: this.sightings,
+      defectOwner: env.defectOwner,
     });
 
     // Loudest first: whoever is watching the terminal must see truncation before they

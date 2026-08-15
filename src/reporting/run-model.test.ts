@@ -58,6 +58,7 @@ function build(overrides: Partial<Parameters<typeof buildRunModel>[0]> = {}) {
     durationMs: 0,
     outcomes: new Map(),
     sightings: new Map(),
+    defectOwner: 'Ayyappan',
     ...overrides,
   });
 }
@@ -237,6 +238,27 @@ describe('buildRunModel — defects', () => {
     expect(model.defects[0].actual).toContain('logout redirects [webkit] (failed)');
   });
 
+  it('assigns every defect to the configured owner, so none reaches triage unassigned', () => {
+    const model = build({
+      defectOwner: 'Ayyappan',
+      sightings: sightingsOf({ defect: defect(), seen: seenOnce() }),
+    });
+
+    expect(model.defects[0].owner).toBe('Ayyappan');
+  });
+
+  it('lets a defect name its own owner when it belongs to another team', () => {
+    const model = build({
+      defectOwner: 'Ayyappan',
+      sightings: sightingsOf({
+        defect: defect({ owner: 'Backend Team' }),
+        seen: seenOnce(),
+      }),
+    });
+
+    expect(model.defects[0].owner).toBe('Backend Team');
+  });
+
   it('leaves the API bench’s endpoint vocabulary empty for a UI defect', () => {
     // Inventing a method or endpoint to fill the column would put fiction in a
     // bug ticket — a UI defect has no endpoint to name.
@@ -245,7 +267,6 @@ describe('buildRunModel — defects', () => {
     expect(model.defects[0].method).toBe('');
     expect(model.defects[0].endpointPath).toBe('');
     expect(model.defects[0].requestBody).toBe('');
-    expect(model.defects[0].owner).toBe('');
   });
 
   it('carries the registry’s own wording through to the report', () => {

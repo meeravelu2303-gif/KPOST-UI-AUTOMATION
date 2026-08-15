@@ -29,6 +29,13 @@ export interface KnownDefect {
   readonly severity: 'High' | 'Medium' | 'Low';
   /** The KPost module the defect lives in, as shown on the QA dashboard. */
   readonly module: string;
+  /**
+   * OPTIONAL assignee override. Omit and the defect goes to `env.defectOwner`
+   * (the UI team lead) — correct for almost everything this bench finds, since
+   * it only tests the UI. Set it when a defect genuinely belongs to another
+   * team, so the dashboard routes it to someone who can actually fix it.
+   */
+  readonly owner?: string;
 }
 
 export const KNOWN_APP_DEFECTS = {
@@ -146,6 +153,94 @@ export const KNOWN_APP_DEFECTS = {
       'afterwards stays on /home and renders a dead, shell-less page (the Quick Access ' +
       'button never appears) instead of redirecting to the login screen.',
     expected: 'Visiting a protected route while signed out redirects to /login.',
+  },
+
+  /*
+   * Accessibility defects, all observed by the axe-core scans in `tests/a11y/`
+   * on 2026-08-16 (chromium, WCAG 2.1 A/AA). These are not style opinions:
+   * `best-practice` rules are excluded from the scan, so every entry here is a
+   * conformance failure. Several are also the direct cause of this bench's
+   * ugliest workarounds — see KPOST-A11Y-001.
+   */
+
+  /** Form controls render with no accessible name. */
+  A11Y_UNLABELLED_FORM_CONTROLS: {
+    id: 'KPOST-A11Y-001',
+    severity: 'High',
+    module: 'Accessibility',
+    summary: 'Form controls render with no accessible name (label, select-name).',
+    evidence:
+      'axe-core, 2026-08-16: two CRITICAL violations. On /login the combobox input ' +
+      '#react-select-2-input trips "label — Form elements must have labels"; the ' +
+      'language <select> trips "select-name — Select element must have an accessible ' +
+      'name" on both /login and /home. A screen-reader user cannot tell what either ' +
+      'control is for. This is the same root cause that forces the suite to reach for ' +
+      'CSS selectors in WriteMailPage and AppShellPage, so fixing it removes real ' +
+      'brittleness from the tests as well as unblocking assistive tech.',
+    expected:
+      'Every form control exposes an accessible name via <label>, aria-label or ' +
+      'aria-labelledby.',
+  },
+
+  /** Pinch-zoom is disabled for everyone. */
+  A11Y_ZOOM_DISABLED: {
+    id: 'KPOST-A11Y-002',
+    severity: 'Medium',
+    module: 'Accessibility',
+    summary: 'Zooming and scaling are disabled via the viewport meta tag.',
+    evidence:
+      'axe-core, 2026-08-16: "meta-viewport — Zooming and scaling must not be ' +
+      'disabled" on meta[name="viewport"], present on /login and /home and therefore ' +
+      'on every page of the SPA. Users who need to magnify text cannot, which is a ' +
+      'WCAG 1.4.4 failure and affects far more people than it appears to — it is a ' +
+      'one-line fix in index.html.',
+    expected: 'The viewport meta tag permits user scaling (no user-scalable=no, no maximum-scale=1).',
+  },
+
+  /** Text fails minimum contrast in several places. */
+  A11Y_INSUFFICIENT_CONTRAST: {
+    id: 'KPOST-A11Y-003',
+    severity: 'Medium',
+    module: 'Accessibility',
+    summary: 'Several UI elements fall below the minimum colour-contrast ratio.',
+    evidence:
+      'axe-core, 2026-08-16: "color-contrast — Elements must meet minimum color ' +
+      'contrast ratio thresholds" (SERIOUS). Four elements on /home — .Katchup_Name, ' +
+      '#slider-tab-example-tab-Recent, .Calender_icon and .ecomm_font — plus the ' +
+      'secondary text inside the Quick Access launcher. Low-contrast text is unreadable ' +
+      'in bright light and for low-vision users.',
+    expected: 'Text meets the WCAG AA contrast ratio (4.5:1 normal, 3:1 large).',
+  },
+
+  /** A scrollable pane cannot be reached from the keyboard. */
+  A11Y_SCROLL_REGION_NOT_FOCUSABLE: {
+    id: 'KPOST-A11Y-004',
+    severity: 'Medium',
+    module: 'Accessibility',
+    summary: 'The KEcommerce scroll area is unreachable by keyboard.',
+    evidence:
+      'axe-core, 2026-08-16: "scrollable-region-focusable — Scrollable region must ' +
+      'have keyboard access" (SERIOUS) on .ecommerce-scroll-area on /home. The pane ' +
+      'scrolls with a mouse or trackpad but has no tabindex, so a keyboard-only user ' +
+      'cannot scroll it and simply cannot see the content past the fold.',
+    expected: 'Scrollable regions are focusable (tabindex="0") or expose a keyboard-operable alternative.',
+  },
+
+  /** Quick Access nests interactive controls inside one another. */
+  A11Y_NESTED_INTERACTIVE_CONTROLS: {
+    id: 'KPOST-A11Y-005',
+    severity: 'Medium',
+    module: 'Accessibility',
+    summary: 'Quick Access nests interactive controls inside its result buttons.',
+    evidence:
+      'axe-core, 2026-08-16: "nested-interactive — Interactive controls must not be ' +
+      'nested" (SERIOUS) across 13 elements, every ' +
+      'button[data-quick-search-item-index="n"] in the launcher. Nesting a focusable ' +
+      'control inside another makes the inner one unreachable for screen readers and ' +
+      'produces an unpredictable tab order. Quick Access is the ONLY accessible ' +
+      'navigation path in KPost (the icon rail exposes no names at all), so a defect ' +
+      'here has no fallback.',
+    expected: 'Interactive controls are siblings, never nested inside one another.',
   },
 } as const satisfies Record<string, KnownDefect>;
 

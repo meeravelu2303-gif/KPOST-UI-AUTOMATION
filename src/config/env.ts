@@ -141,6 +141,17 @@ export interface EnvConfig {
     readonly ingestUrl: string | undefined;
     readonly apiKey: string | undefined;
   };
+  /**
+   * Who a defect found by this bench is assigned to, carried into
+   * `BUG_REPORT.*` and the dashboard's Owner field.
+   *
+   * Defaults to the UI team lead, because every defect this bench can find is a
+   * KPost **UI** defect and lands with that team. Override with `DEFECT_OWNER`
+   * when the team changes, or per defect with an `owner` on its registry entry
+   * — that is the escape hatch for a bug that genuinely belongs elsewhere
+   * (KPOST-KMAIL-002, for instance, is a backend fault surfaced through the UI).
+   */
+  readonly defectOwner: string;
   readonly auth: {
     /** 'api' → fast API login for storage state; 'ui' → drive the login form. */
     readonly mode: 'api' | 'ui';
@@ -179,6 +190,7 @@ export const env: EnvConfig = Object.freeze({
     recipient: process.env.MAIL_RECIPIENT || undefined,
   },
   dashboard: optionalDashboard(),
+  defectOwner: optional('DEFECT_OWNER', 'Ayyappan'),
   auth: {
     // Defaults to 'ui': KPost stores its session as several localStorage keys
     // (accessToken, refreshToken, isAuthenticated, Authuser, and an encrypted

@@ -18,6 +18,7 @@
 import { test, expect } from '../../src/fixtures/fixtures';
 import { LoginPage } from '../../src/pages/LoginPage';
 import { formatViolations, scanA11y } from '../../src/utils/a11y';
+import { KNOWN_APP_DEFECTS, noteKnownDefect } from '../../src/utils/known-defects';
 
 test.describe('Accessibility — signed out @regression @a11y', () => {
   // The login screen is reachable without a session, so this file's first block
@@ -25,6 +26,8 @@ test.describe('Accessibility — signed out @regression @a11y', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
   test('the login screen has no WCAG A/AA violations', async ({ page }) => {
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_UNLABELLED_FORM_CONTROLS);
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_ZOOM_DISABLED);
     const loginPage = new LoginPage(page);
 
     await loginPage.open();
@@ -38,6 +41,10 @@ test.describe('Accessibility — signed out @regression @a11y', () => {
 
 test.describe('Accessibility — signed in @regression @a11y', () => {
   test('the Home pane has no WCAG A/AA violations', async ({ homePage, page }) => {
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_UNLABELLED_FORM_CONTROLS);
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_ZOOM_DISABLED);
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_INSUFFICIENT_CONTRAST);
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_SCROLL_REGION_NOT_FOCUSABLE);
     await homePage.open();
     await homePage.expectLoaded();
 
@@ -46,24 +53,35 @@ test.describe('Accessibility — signed in @regression @a11y', () => {
     expect(violations, formatViolations(violations, 'the Home pane')).toEqual([]);
   });
 
-  test('every navigation control exposes an accessible name', async ({ homePage, page }) => {
+  test('the app exposes a navigation landmark', async ({ homePage, page }) => {
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_UNLABELLED_FORM_CONTROLS);
     /*
-     * Scoped to the rail on purpose. This is the defect that shapes the whole
-     * navigation strategy: the rail renders as `div.icon-KP_03-KMail` with no
-     * text, no aria-label and no title, so no accessible locator can reach it
-     * and `AppShellPage.openModuleFromRail()` has to fall back to a CSS class.
-     * Narrowing the scan means this test reports on that specific contract
-     * rather than being masked by unrelated page-level violations.
+     * This test originally tried to scan `nav, [role="navigation"]` and errored
+     * with "No elements found for include in page Context" — axe cannot scope a
+     * scan to something that does not exist. That error WAS the finding: KPost
+     * has no navigation landmark at all. The icon rail is a stack of
+     * `div.icon-KP_03-KMail` elements with no text, no aria-label, no title and
+     * no landmark role, which is why `AppShellPage.openModuleFromRail()` has to
+     * fall back to a CSS class — the one place in this codebase that does.
+     *
+     * Rewritten to assert the contract directly, so it fails with a readable
+     * statement of what is missing instead of an axe internal error.
      */
     await homePage.open();
     await homePage.expectLoaded();
 
-    const violations = await scanA11y(page, { include: 'nav, [role="navigation"]' });
+    const landmarks = page.locator('nav, [role="navigation"]');
 
-    expect(violations, formatViolations(violations, 'the navigation rail')).toEqual([]);
+    expect(
+      await landmarks.count(),
+      'KPost renders no <nav> and no [role="navigation"]. Screen-reader users cannot ' +
+        'jump to navigation, and the icon rail is unreachable by any accessible locator.',
+    ).toBeGreaterThan(0);
   });
 
   test('the Quick Access launcher has no WCAG A/AA violations', async ({ homePage, page }) => {
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_INSUFFICIENT_CONTRAST);
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_NESTED_INTERACTIVE_CONTROLS);
     /*
      * The launcher is the accessible navigation path the whole suite depends
      * on — a real ARIA dialog whose entries are real buttons with real names.

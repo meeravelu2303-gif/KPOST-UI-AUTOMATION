@@ -105,6 +105,13 @@ export interface BuildRunModelInput {
   readonly outcomes: ReadonlyMap<string, string>;
   /** Sightings per known defect, keyed by defect id. */
   readonly sightings: ReadonlyMap<string, { defect: KnownDefect; seen: DefectSighting[] }>;
+  /**
+   * Default assignee for defects that do not name their own owner. A report
+   * that reaches a triage board with an empty Owner column gets triaged by
+   * nobody, so this is the difference between filing a bug and filing it *to*
+   * someone.
+   */
+  readonly defectOwner: string;
 }
 
 /** Severity order used for sorting and for the digest's "look here first" list. */
@@ -171,7 +178,7 @@ export function buildRunModel(input: BuildRunModelInput): RunModel {
   }
 
   const defects = [...input.sightings.values()]
-    .map(({ defect, seen }) => toDefectRecord(defect, seen, input.status))
+    .map(({ defect, seen }) => toDefectRecord(defect, seen, input.status, input.defectOwner))
     .sort(
       (a, b) => severityRank(a.severity) - severityRank(b.severity) || a.id.localeCompare(b.id),
     );
@@ -216,6 +223,7 @@ function toDefectRecord(
   defect: KnownDefect,
   seen: readonly DefectSighting[],
   runStatus: string,
+  defaultOwner: string,
 ): DefectRecord {
   const witnesses = seen
     .map((s) => `${s.testTitle} [${s.project}] (${s.status})`)
@@ -227,7 +235,9 @@ function toDefectRecord(
     title: defect.summary,
     severity: defect.severity,
     module: defect.module,
-    owner: '',
+    // A defect may name its own owner when it belongs to another team; the rest
+    // go to the configured default rather than reaching triage unassigned.
+    owner: defect.owner ?? defaultOwner,
     method: '',
     endpointPath: '',
     description: defect.evidence,
