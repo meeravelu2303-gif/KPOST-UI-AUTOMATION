@@ -141,6 +141,34 @@ export class LoginPage extends BasePage {
     });
   }
 
+  /**
+   * Assert the form told the user *something* when a login attempt failed.
+   *
+   * Deliberately generous about the shape: any `role="alert"`/`role="status"`,
+   * or any visible text that reads as an error, counts. The contract being
+   * asserted is "the user is told why", not "the message is worded like this" —
+   * a bench that pinned exact copy would go red on a translation change while
+   * still missing the real failure, which would be nothing appearing at all.
+   *
+   * ⚠ The alert this catches ("Enter a Valid KpostID / Mobile Number") is
+   * TRANSIENT — measured present at t=250ms after submit and gone before t=9s.
+   * That is why this is a web-first assertion that begins polling the instant it
+   * is called. Insert any wait before it and it will observe the empty page
+   * after the toast has gone, and report working behaviour as broken.
+   */
+  async expectLoginFeedback(message?: string): Promise<void> {
+    await test.step('Expect the form to explain why the login could not proceed', async () => {
+      const errorish =
+        /(error|invalid|incorrect|wrong|not found|does not exist|doesn't exist|unable|failed|try again|no such)/i;
+      const feedback = this.page
+        .getByRole('alert')
+        .or(this.page.getByRole('status'))
+        .or(this.page.getByText(errorish))
+        .first();
+      await expect(feedback, message).toBeVisible();
+    });
+  }
+
   /** Assert the inline error surface shows the expected message. */
   async expectError(message: string | RegExp): Promise<void> {
     await test.step('Expect a login error', async () => {

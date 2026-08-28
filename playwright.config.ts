@@ -55,11 +55,12 @@ export default defineConfig({
      list for the terminal, JSON + JUnit for CI systems, and the bench's own
      reporting engine.
 
-     That last one builds ONE run model and projects it three ways: the
+     That last one builds ONE run model and projects it four ways: the
      committed BUG_REPORT.md/.json deliverable, the DEV_DIGEST.md/.json triage
-     summary, and a POST to the external QA Dashboard (slug `kpost-ui`). It
-     runs alongside — never instead of — the reporters above, no-ops when
-     DASHBOARD_INGEST_URL is unset, and never fails a run over reporting.
+     summary, a POST to the external QA Dashboard (slug `kpost-ui`), and known
+     defects filed into the "KPost UI" Bugzilla product. It runs alongside —
+     never instead of — the reporters above, no-ops when DASHBOARD_INGEST_URL
+     / BUGZILLA_URL are unset, and never fails a run over reporting.
      Because everything derives from one model, its position in this array
      carries no ordering constraint. */
   reporter: [

@@ -48,13 +48,25 @@ test.describe('Home navigation @regression @home', () => {
     await homePage.closeQuickAccess();
   });
 
-  test('launching a module from Quick Access leaves the home root', async ({ homePage, page }) => {
+  test('launching a module from Quick Access opens that module', async ({
+    homePage,
+    kdirectoryPage,
+    page,
+  }) => {
     await homePage.open();
     await homePage.expectLoaded();
 
     await homePage.launchModule('KDirectory');
 
-    await expect(page).not.toHaveURL(/\/home\/?$/i);
+    /*
+     * Asserts we arrived at KDirectory, not merely that we left /home. The
+     * previous version checked `not.toHaveURL(/\/home$/)`, which passes if the
+     * launcher navigates ANYWHERE — including to /login when the app signs the
+     * session out. "It went somewhere" is not the contract; "it opened the
+     * module you clicked" is.
+     */
+    await expect(page).toHaveURL(/\/kdirectory/i);
+    await kdirectoryPage.expectLoaded();
   });
 
   test('the Home pane surfaces the KNews and KEcommerce panels', async ({ homePage }) => {

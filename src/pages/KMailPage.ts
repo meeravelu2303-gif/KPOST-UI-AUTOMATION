@@ -43,6 +43,7 @@
  */
 import { type Locator, type Page, expect, test } from '@playwright/test';
 import { AppShellPage } from './AppShellPage';
+import { KNOWN_APP_DEFECTS } from '../utils/known-defects';
 
 export interface MailDraft {
   to: string;
@@ -95,7 +96,7 @@ export class KMailPage extends AppShellPage {
   async openFromLauncher(): Promise<void> {
     await test.step('Open KMail from Quick Access', async () => {
       await this.launchModule('KMail');
-      await this.expectPath(/\/kmail/i);
+      await this.expectOnKMail();
     });
   }
 
@@ -103,8 +104,21 @@ export class KMailPage extends AppShellPage {
   async openFromRail(): Promise<void> {
     await test.step('Open KMail from the icon rail', async () => {
       await this.openModuleFromRail('KMail');
-      await this.expectPath(/\/kmail/i);
+      await this.expectOnKMail();
     });
+  }
+
+  /**
+   * Assert we arrived at `/kmail` — and name the reason when we did not.
+   *
+   * Opening KMail currently signs the user out (KPOST-KMAIL-003), so the honest
+   * failure is "the app logged you out", not "the URL did not match a pattern".
+   * `expectModuleRoute` asserts first and only inspects the URL once that has
+   * failed, because the sign-out redirect is usually still in flight at the
+   * moment the navigation returns — checking up front misses it.
+   */
+  private async expectOnKMail(): Promise<void> {
+    await this.expectModuleRoute(/\/kmail/i, KNOWN_APP_DEFECTS.KMAIL_OPENING_SIGNS_USER_OUT);
   }
 
   /** Assert the module loaded and the session survived (this is the assertion

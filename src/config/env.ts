@@ -70,8 +70,40 @@ function optionalCredentials(emailVar: string, passwordVar: string): Credentials
 
 const directoryUser = optionalCredentials('DIRECTORY_USER_EMAIL', 'DIRECTORY_USER_PASSWORD');
 
+/**
+ * The account the AUTH specs drive the real login/logout flow as.
+ *
+ * It must NOT be the standard user. KPost allows one active session per
+ * account, so a spec that signs in as the standard user invalidates the shared
+ * `storageState` global setup captured for that same account — and every
+ * authenticated test that runs afterwards is silently logged out, failing on a
+ * confusing "Execution context was destroyed" several layers from the cause.
+ * That was measured, not theorised: on 2026-08-27 the stored session was
+ * verified working by global setup, the auth specs ran, and the same stored
+ * session then redirected `/home` to `/login`.
+ *
+ * Defaults to the admin account, which no spec otherwise uses. Override with
+ * AUTH_USER_EMAIL / AUTH_USER_PASSWORD to give the auth journeys an account of
+ * their very own — which is what you want as soon as anything starts asserting
+ * on admin-specific behaviour.
+ */
+const authUser = optionalCredentials('AUTH_USER_EMAIL', 'AUTH_USER_PASSWORD');
+
+/** The scheme+host+port of a URL, or undefined if it does not parse. */
+function originOf(url: string): string | undefined {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Read the optional dashboard pair; both-or-neither, like credentials. */
-function optionalDashboard(): { ingestUrl: string | undefined; apiKey: string | undefined } {
+function optionalDashboard(): {
+  ingestUrl: string | undefined;
+  apiKey: string | undefined;
+  publicUrl: string | undefined;
+} {
   const ingestUrl = process.env.DASHBOARD_INGEST_URL || undefined;
   const apiKey = process.env.DASHBOARD_API_KEY || undefined;
   if ((ingestUrl === undefined) !== (apiKey === undefined)) {
@@ -80,7 +112,41 @@ function optionalDashboard(): { ingestUrl: string | undefined; apiKey: string | 
         `${ingestUrl ? 'DASHBOARD_INGEST_URL' : 'DASHBOARD_API_KEY'}.`,
     );
   }
-  return { ingestUrl, apiKey };
+  // DASHBOARD_INGEST_URL is a server-to-server address — often `localhost`,
+  // which is meaningless in a link handed to a person on another machine.
+  // DASHBOARD_PUBLIC_URL is the address a browser can actually reach; it
+  // falls back to the ingest URL's origin only when the two happen to
+  // coincide (set it explicitly whenever the dashboard sits behind a
+  // different host/port/proxy than the ingest endpoint).
+  const publicUrl = (process.env.DASHBOARD_PUBLIC_URL || undefined) ?? (ingestUrl ? originOf(ingestUrl) : undefined);
+  return { ingestUrl, apiKey, publicUrl };
+}
+
+/** Read the optional Bugzilla pair; both-or-neither, like credentials. */
+function optionalBugzilla(): {
+  url: string | undefined;
+  apiKey: string | undefined;
+  product: string;
+  version: string;
+  dryRun: boolean;
+} {
+  const url = process.env.BUGZILLA_URL || undefined;
+  const apiKey = process.env.BUGZILLA_API_KEY || undefined;
+  if ((url === undefined) !== (apiKey === undefined)) {
+    throw new Error(
+      '"BUGZILLA_URL" and "BUGZILLA_API_KEY" must be set together — found only ' +
+        `${url ? 'BUGZILLA_URL' : 'BUGZILLA_API_KEY'}.`,
+    );
+  }
+  return {
+    url,
+    apiKey,
+    product: optional('BUGZILLA_PRODUCT', 'KPost UI'),
+    version: optional('BUGZILLA_VERSION', 'unspecified'),
+    // Defaults to true: filing real tickets is a deliberate opt-in, not a side
+    // effect of running the suite.
+    dryRun: toBool(optional('BUGZILLA_DRY_RUN', 'true')),
+  };
 }
 
 export interface Credentials {
@@ -107,6 +173,13 @@ export interface EnvConfig {
   readonly users: {
     readonly standard: Credentials;
     readonly admin: Credentials;
+    /**
+     * The account `tests/auth/` drives the real login and logout flows as.
+     * NEVER the standard user — see the note on `authUser` above: signing in
+     * as the standard user invalidates the shared session every other spec
+     * depends on. Defaults to `admin`.
+     */
+    readonly auth: Credentials;
     /**
      * OPTIONAL account that has already completed KDirectory onboarding.
      *
@@ -140,6 +213,30 @@ export interface EnvConfig {
   readonly dashboard: {
     readonly ingestUrl: string | undefined;
     readonly apiKey: string | undefined;
+    /**
+     * Browser-reachable base URL for the dashboard's own UI (e.g.
+     * `http://192.168.0.50:8081`), used to link a defect's `/defects/:id`
+     * evidence page — with a real `<video>` player — from places like a filed
+     * Bugzilla ticket. Defaults to `ingestUrl`'s origin; override with
+     * `DASHBOARD_PUBLIC_URL` when that origin isn't what a person's browser
+     * can actually reach (e.g. ingest goes over `localhost`).
+     */
+    readonly publicUrl: string | undefined;
+  };
+  /**
+   * OPTIONAL Bugzilla instance (the separate BUGZILLA-UI-fronted deployment
+   * the API bench already files into, under its own "KPost API" product).
+   * This bench files into its own "KPost UI" product instead, so the two
+   * benches never share or collide on tickets. Both values unset → no-op;
+   * set only one → startup fails. `dryRun` defaults true — filing real
+   * tickets is an explicit opt-in via `BUGZILLA_DRY_RUN=false`.
+   */
+  readonly bugzilla: {
+    readonly url: string | undefined;
+    readonly apiKey: string | undefined;
+    readonly product: string;
+    readonly version: string;
+    readonly dryRun: boolean;
   };
   /**
    * Who a defect found by this bench is assigned to, carried into
@@ -183,6 +280,13 @@ export const env: EnvConfig = Object.freeze({
       email: required('ADMIN_USER_EMAIL'),
       password: required('ADMIN_USER_PASSWORD'),
     },
+    // Falls back to the admin account, which no other spec drives — so the auth
+    // journeys never compete with the standard user for the single login slot
+    // KPost allows per account.
+    auth: authUser ?? {
+      email: required('ADMIN_USER_EMAIL'),
+      password: required('ADMIN_USER_PASSWORD'),
+    },
     ...(directoryUser ? { directory: directoryUser } : {}),
   },
   hasDirectoryUser: directoryUser !== undefined,
@@ -190,6 +294,7 @@ export const env: EnvConfig = Object.freeze({
     recipient: process.env.MAIL_RECIPIENT || undefined,
   },
   dashboard: optionalDashboard(),
+  bugzilla: optionalBugzilla(),
   defectOwner: optional('DEFECT_OWNER', 'Ayyappan'),
   auth: {
     // Defaults to 'ui': KPost stores its session as several localStorage keys

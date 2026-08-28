@@ -30,6 +30,7 @@ import { STANDARD_STORAGE_STATE } from '../config/global-setup';
 import { env, type Credentials } from '../config/env';
 import { apiLogin, apiCreatePost, apiDeletePost, type AuthResult } from '../utils/api-helpers';
 import type { Post } from '../types';
+import { looksLikeLostSession, repairStandardSession } from '../utils/session-repair';
 
 /** Test-scoped fixtures — recreated per test. */
 interface KPostFixtures {
@@ -48,6 +49,17 @@ interface KPostFixtures {
   /** Convenience accessor for the seeded standard-user credentials. */
   standardUser: Credentials;
   adminUser: Credentials;
+  /**
+   * The account the auth journeys sign in and out as.
+   *
+   * Deliberately NOT `standardUser`. KPost allows one active session per
+   * account, so a spec that logs in (or out) as the standard user destroys the
+   * shared `storageState` global setup captured for that same account, and
+   * every authenticated test after it fails as a silently-logged-out session.
+   * Verified 2026-08-27: the stored session passed global setup's own check,
+   * the auth specs then ran, and `/home` afterwards redirected to `/login`.
+   */
+  authUser: Credentials;
   /**
    * The account the KDirectory specs run as: the pre-onboarded directory user
    * when `DIRECTORY_USER_EMAIL` is configured, otherwise the standard user.
@@ -79,6 +91,37 @@ export const test = base.extend<KPostFixtures, KPostWorkerFixtures>({
    * applied to every test's context unless a describe block overrides it.
    */
   storageState: STANDARD_STORAGE_STATE,
+
+  /**
+   * The page, plus one piece of after-the-fact housekeeping.
+   *
+   * When a test fails because the app dropped the shared session, the session
+   * file on disk is dead and EVERY remaining test in the run would fail the same
+   * way — a single drop turning into two hundred meaningless failures. So the
+   * session is re-seeded here, after the test.
+   *
+   * The test that hit it still fails. Only the cascade is removed; the drop
+   * itself is real signal (KPOST-AUTH-002) and is annotated so the report can
+   * count how often it happened. See `session-repair.ts` for the full rationale
+   * and why this is limited to serial runs.
+   */
+  page: async ({ page }, use, testInfo) => {
+    await use(page);
+
+    if (testInfo.status === 'passed' || testInfo.status === 'skipped') return;
+    if (!looksLikeLostSession(testInfo.errors)) return;
+    // Concurrent repairs would each claim the one session KPost allows per
+    // account and evict each other, so only the serial mode repairs.
+    if (testInfo.config.workers !== 1) return;
+
+    testInfo.annotations.push({
+      type: 'session-lost',
+      description:
+        'The app dropped the shared authenticated session during this test. The session was ' +
+        're-seeded afterwards so the rest of the run is not affected; this test still failed.',
+    });
+    await repairStandardSession();
+  },
 
   loginPage: async ({ page }, use) => {
     await use(new LoginPage(page));
@@ -138,6 +181,10 @@ export const test = base.extend<KPostFixtures, KPostWorkerFixtures>({
 
   adminUser: async ({}, use) => {
     await use(env.users.admin);
+  },
+
+  authUser: async ({}, use) => {
+    await use(env.users.auth);
   },
 
   directoryUser: async ({}, use) => {

@@ -13,6 +13,7 @@
  * take Playwright Locators/Pages so any page object can reuse them.
  */
 import { type Locator, type Page, expect } from '@playwright/test';
+import { KNOWN_APP_DEFECTS, noteKnownDefect } from './known-defects';
 
 /**
  * Wait for the app to be render-ready after a navigation.
@@ -30,10 +31,58 @@ import { type Locator, type Page, expect } from '@playwright/test';
 export async function waitForAppReady(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded');
   await assertNoAppErrorOverlay(page);
-  // Flush one React commit cycle.
-  await page.evaluate(
-    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
-  );
+  try {
+    // Flush one React commit cycle.
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+    );
+  } catch (error) {
+    // A destroyed execution context here usually means the page navigated out
+    // from under us mid-check. The one verified, recurring cause is the app
+    // force-logging-out the session under sustained use — detect that specific
+    // case and annotate it before re-throwing, so it counts as a known defect
+    // instead of a generic, uncategorised failure.
+    // The destroyed context fires mid-navigation, so the /login page (and its
+    // alert) may not have rendered yet at this exact instant — a plain
+    // isVisible() check races the navigation and misses it. Give it a bounded
+    // window to actually appear instead.
+    const forcedLogoutAlert = page
+      .getByRole('alert')
+      .filter({ hasText: /logged out .*(another|other).*(device|browser)/i });
+    const forcedOut = await forcedLogoutAlert
+      .waitFor({ state: 'visible', timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (forcedOut) {
+      noteKnownDefect(KNOWN_APP_DEFECTS.SESSION_FORCED_LOGOUT_UNDER_SUSTAINED_USE);
+      throw new Error(
+        `${KNOWN_APP_DEFECTS.SESSION_FORCED_LOGOUT_UNDER_SUSTAINED_USE.id} — the app force-logged-out ` +
+          'the authenticated session mid-test ("logged out ... another device"), even though no ' +
+          'other device was actually in use. This is an app problem, not a test problem.',
+      );
+    }
+    /*
+     * No alert, but we landed on /login: the session simply is not
+     * authenticated any more. Left as the raw "Execution context was
+     * destroyed", this reads like a Playwright timing bug and costs an
+     * afternoon — it is what the auth specs logging the SHARED account out
+     * looked like from here, for an entire suite's worth of failures. Name the
+     * condition and list the two causes that actually produce it.
+     */
+    if (/\/login/i.test(page.url())) {
+      throw new Error(
+        'The session is no longer authenticated — this navigation landed on /login. The page ' +
+          'context was destroyed by that redirect, which is why the underlying error mentions a ' +
+          'destroyed execution context rather than a login.\n' +
+          'Two things cause this: (1) another sign-in on the SAME account took the one session ' +
+          'KPost allows per account — check that nothing outside the standard user is signing in ' +
+          'or out (tests/auth/ uses env.users.auth precisely so it cannot); (2) the app dropped ' +
+          'the session on its own (KPOST-AUTH-002).\n' +
+          `Underlying error: ${(error as Error).message}`,
+      );
+    }
+    throw error;
+  }
 }
 
 /** The iframe the dev server injects over the page to report an app error. */
@@ -62,6 +111,41 @@ const DEV_SERVER_OVERLAY = '#webpack-dev-server-client-overlay';
 export async function assertNoAppErrorOverlay(page: Page): Promise<void> {
   const detail = await readAppErrorOverlay(page);
   if (detail === null) return;
+
+  // A specific, previously-verified crash: Firebase Messaging throws on
+  // browsers it doesn't fully support (Safari/WebKit, Firefox), on every page
+  // load. Annotate it as a known defect before failing, so the reporting
+  // pipeline counts and files it instead of the failure vanishing into the
+  // generic bucket alongside genuinely new failures. The thrown error is
+  // prefixed with the defect's own id — matching SESSION_FORCED_LOGOUT's
+  // pattern in `waitForAppReady` above — so the reporter's evidence-collector
+  // can tell "this failure IS the Firebase crash" from "this test merely
+  // carries an unrelated known-defect annotation from earlier in its body",
+  // and stop attributing this crash's screenshot to whatever the test was
+  // actually trying to verify when the crash cut it off.
+  if (detail?.includes('messaging/unsupported-browser')) {
+    noteKnownDefect(KNOWN_APP_DEFECTS.FIREBASE_MESSAGING_UNSUPPORTED_BROWSER_CRASH);
+    throw new Error(
+      `${KNOWN_APP_DEFECTS.FIREBASE_MESSAGING_UNSUPPORTED_BROWSER_CRASH.id} — the application ` +
+        'under test raised an error — the dev-server error overlay is covering the page, so ' +
+        'clicks will be intercepted. This is an app problem, not a test problem.\n\n' +
+        (detail || '(overlay text could not be read)'),
+    );
+  }
+
+  // The Firefox counterpart: MicInput throws an unhandled fetch error out of a
+  // mount effect, on the shell every screen renders. Same treatment as the
+  // Firebase crash above — attribute it so the run files ONE defect with real
+  // evidence instead of two dozen anonymous "the app raised an error" failures.
+  if (detail.includes('MicInput')) {
+    noteKnownDefect(KNOWN_APP_DEFECTS.MIC_INPUT_UNHANDLED_NETWORK_ERROR);
+    throw new Error(
+      `${KNOWN_APP_DEFECTS.MIC_INPUT_UNHANDLED_NETWORK_ERROR.id} — the application under test ` +
+        'raised an unhandled error from MicInput, so the dev-server overlay is covering the page ' +
+        'and clicks will be intercepted. This is an app problem, not a test problem.\n\n' +
+        detail,
+    );
+  }
 
   throw new Error(
     'The application under test raised an error — the dev-server error overlay is ' +

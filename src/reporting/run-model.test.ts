@@ -6,6 +6,7 @@ import {
   passRate,
   severityRank,
   verdict,
+  withBugzillaLinks,
 } from './run-model';
 
 /**
@@ -233,7 +234,9 @@ describe('buildRunModel — defects', () => {
       }),
     });
 
-    expect(model.defects[0].actual).toContain('Observed by 2 test(s)');
+    // ONE record for the defect, naming both browsers that saw it.
+    expect(model.defects).toHaveLength(1);
+    expect(model.defects[0].actual).toContain('Observed by 2 test(s) across 2 browser(s)');
     expect(model.defects[0].actual).toContain('logout redirects [chromium] (failed)');
     expect(model.defects[0].actual).toContain('logout redirects [webkit] (failed)');
   });
@@ -373,5 +376,182 @@ describe('buildRunModel — passthrough fields', () => {
     projects.push('webkit');
 
     expect(model.run.projects).toEqual(['chromium', 'firefox']);
+  });
+});
+
+describe('defect classification', () => {
+  it('tags every defect as a functional website defect', () => {
+    const model = build({ sightings: sightingsOf({ defect: defect(), seen: seenOnce() }) });
+
+    expect(model.defects[0].category).toBe('Functional');
+    expect(model.defects[0].type).toBe('WEBSITE');
+  });
+
+  it('pairs a priority with each severity, matching what Bugzilla is sent', () => {
+    const model = build({
+      sightings: sightingsOf(
+        { defect: defect({ id: 'KPOST-H', severity: 'High' }), seen: seenOnce() },
+        { defect: defect({ id: 'KPOST-M', severity: 'Medium' }), seen: seenOnce() },
+        { defect: defect({ id: 'KPOST-L', severity: 'Low' }), seen: seenOnce() },
+      ),
+    });
+
+    const byId = Object.fromEntries(model.defects.map((d) => [d.id, d.priority]));
+    expect(byId).toEqual({ 'KPOST-H': 'High', 'KPOST-M': 'Normal', 'KPOST-L': 'Low' });
+  });
+
+  it('falls back to Normal priority for an unrecognised severity', () => {
+    const model = build({
+      sightings: sightingsOf({ defect: defect({ severity: 'Cosmic' as never }), seen: seenOnce() }),
+    });
+
+    expect(model.defects[0].priority).toBe('Normal');
+  });
+});
+
+describe('withBugzillaLinks', () => {
+  const model = () =>
+    build({
+      sightings: sightingsOf(
+        { defect: defect({ id: 'KPOST-A-001', severity: 'High' }), seen: seenOnce() },
+        { defect: defect({ id: 'KPOST-B-001', severity: 'Low' }), seen: seenOnce() },
+      ),
+    });
+
+  it('attaches the filed ticket to the defect it belongs to', () => {
+    const linked = withBugzillaLinks(
+      model(),
+      new Map([['KPOST-A-001', { id: 635, url: 'http://bugzilla/show_bug.cgi?id=635' }]]),
+    );
+
+    const a = linked.defects.find((d) => d.id === 'KPOST-A-001');
+    expect(a?.bugzillaId).toBe(635);
+    expect(a?.bugzillaUrl).toBe('http://bugzilla/show_bug.cgi?id=635');
+  });
+
+  it('leaves a defect with no filed ticket untouched rather than half-filled', () => {
+    const linked = withBugzillaLinks(
+      model(),
+      new Map([['KPOST-A-001', { id: 635, url: 'http://bugzilla/show_bug.cgi?id=635' }]]),
+    );
+
+    const b = linked.defects.find((d) => d.id === 'KPOST-B-001');
+    expect(b?.bugzillaId).toBeUndefined();
+    expect(b?.bugzillaUrl).toBeUndefined();
+  });
+
+  it('is a no-op when nothing was filed (dry run, Bugzilla unset, or filing failed)', () => {
+    const original = model();
+
+    expect(withBugzillaLinks(original, new Map())).toBe(original);
+  });
+
+  it('changes nothing about the run counts it carries', () => {
+    const original = model();
+    const linked = withBugzillaLinks(
+      original,
+      new Map([['KPOST-A-001', { id: 1, url: 'http://bugzilla/show_bug.cgi?id=1' }]]),
+    );
+
+    expect(linked.run).toEqual(original.run);
+    expect(linked.summary).toEqual(original.summary);
+  });
+});
+
+describe('browser attribution', () => {
+  it('counts, per browser, how many tests saw the defect', () => {
+    const model = build({
+      sightings: sightingsOf({
+        defect: defect(),
+        seen: [
+          { testTitle: 'a', project: 'webkit', status: 'failed' },
+          { testTitle: 'b', project: 'webkit', status: 'failed' },
+          { testTitle: 'c', project: 'chromium', status: 'failed' },
+        ],
+      }),
+    });
+
+    expect(model.defects).toHaveLength(1);
+    expect(model.defects[0].browsers).toEqual({ webkit: 2, chromium: 1 });
+  });
+
+  it('lists the test titles under each browser', () => {
+    const model = build({
+      sightings: sightingsOf({
+        defect: defect(),
+        seen: [
+          { testTitle: 'opens KMail', project: 'chromium', status: 'failed' },
+          { testTitle: 'opens KMail', project: 'firefox', status: 'failed' },
+        ],
+      }),
+    });
+
+    expect(model.defects[0].sightingsByBrowser).toEqual({
+      chromium: ['opens KMail'],
+      firefox: ['opens KMail'],
+    });
+  });
+
+  it('does not list the same test twice when a retry re-sights it', () => {
+    const model = build({
+      sightings: sightingsOf({
+        defect: defect(),
+        seen: [
+          { testTitle: 'flaky one', project: 'chromium', status: 'failed' },
+          { testTitle: 'flaky one', project: 'chromium', status: 'failed' },
+        ],
+      }),
+    });
+
+    expect(model.defects[0].sightingsByBrowser.chromium).toEqual(['flaky one']);
+  });
+});
+
+describe('unattributed failures', () => {
+  const orphan = (overrides = {}) => ({
+    testTitle: 'something broke',
+    project: 'chromium',
+    file: 'home/home.spec.ts',
+    error: 'Error: expect(locator).toBeVisible() failed',
+    ...overrides,
+  });
+
+  it('carries them onto the model so the report can show its own residue', () => {
+    const model = build({
+      outcomes: outcomesOf('failed', 'failed'),
+      unattributedFailures: [orphan()],
+    });
+
+    expect(model.run.unattributedFailures).toHaveLength(1);
+    expect(model.run.unattributedFailures[0].testTitle).toBe('something broke');
+  });
+
+  it('defaults to an empty list rather than undefined', () => {
+    expect(build().run.unattributedFailures).toEqual([]);
+  });
+
+  it('leads the verdict with them, ahead of any severity count', () => {
+    const model = build({
+      status: 'failed',
+      outcomes: outcomesOf('failed', 'failed', 'failed'),
+      sightings: sightingsOf({ defect: defect({ severity: 'High' }), seen: seenOnce() }),
+      unattributedFailures: [orphan(), orphan({ testTitle: 'another' })],
+    });
+
+    // The old order announced the High defect and never mentioned the residue.
+    expect(verdict(model)).toContain('2 of 3 failure(s) have NO registered defect');
+    expect(verdict(model)).toContain('high-severity');
+  });
+
+  it('reports the high-severity verdict when every failure IS attributed', () => {
+    const model = build({
+      status: 'failed',
+      outcomes: outcomesOf('failed'),
+      sightings: sightingsOf({ defect: defect({ severity: 'High' }), seen: seenOnce() }),
+    });
+
+    expect(verdict(model)).toBe(
+      '1 high-severity application defect(s) open — fix before the next release.',
+    );
   });
 });

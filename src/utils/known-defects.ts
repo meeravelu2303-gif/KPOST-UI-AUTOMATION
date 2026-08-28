@@ -56,6 +56,77 @@ export const KNOWN_APP_DEFECTS = {
     expected: 'KMail loads without raising any uncaught error.',
   },
 
+  /** Opening KMail signs the user out. */
+  KMAIL_OPENING_SIGNS_USER_OUT: {
+    id: 'KPOST-KMAIL-003',
+    severity: 'High',
+    module: 'KMail',
+    summary: 'Opening KMail silently signs the user out and dumps them on /login.',
+    evidence:
+      'Verified 2026-08-28 (chromium, http://localhost:3000). Reproduced three ways, all identical: ' +
+      'launching KMail from the Quick Access launcher, clicking its icon-rail entry, and navigating ' +
+      'straight to /kmail. In every case the app lands on /login within seconds. It is NOT a stale ' +
+      'stored session — the same thing happens from a completely fresh, human-style login in a clean ' +
+      'browser context: sign in, reach /home, open Quick Access, click KMail, and the next thing on ' +
+      'screen is the login form.\n' +
+      'No 401 is involved: the only failing app requests during the bounce are HTTP 400 ' +
+      '"Request validation failed" from POST /v2/contacts/myContacts/, /myUnknownGroups/, ' +
+      '/myGroups/, /myUnknownKatchupContacts/ and POST /v2/dashboard/homeDashboardMsgs/, so the ' +
+      'sign-out is decided client-side rather than by the server rejecting the token. Nothing is ' +
+      'shown to the user — no alert, no "session expired" notice — so from their chair the mail ' +
+      'module simply throws them out of the product.',
+    expected:
+      'Opening KMail loads the mailbox and leaves the session intact; a genuine auth failure says so ' +
+      'instead of silently returning to the login screen.',
+  },
+
+  /** MicInput throws an unhandled fetch error on Firefox and takes the page with it. */
+  MIC_INPUT_UNHANDLED_NETWORK_ERROR: {
+    id: 'KPOST-GENERAL-002',
+    severity: 'High',
+    module: 'General',
+    summary:
+      'The voice-command MicInput component raises an unhandled NetworkError on Firefox, breaking ' +
+      'every page it mounts on.',
+    evidence:
+      'Verified 2026-08-28 (firefox, full @smoke run, http://localhost:3000): the app raises an ' +
+      'uncaught "NetworkError when attempting to fetch resource" from ' +
+      './src/components/common/MicInput/MicInput.js inside a mount effect ' +
+      '(commitHookEffectListMount → commitPassiveMountOnFiber). It fires on the authenticated shell, ' +
+      'which every screen renders, so it is not confined to one module — 24 of firefox\'s 28 smoke ' +
+      'tests failed on it, and the same run on chromium saw it zero times. In dev the error puts the ' +
+      'dev-server overlay over the page and blocks every click; in a production build there is no ' +
+      'overlay, so the same fault would instead be a voice-command button that silently does nothing ' +
+      'on Firefox, plus an unhandled rejection on every page load.',
+    expected:
+      'MicInput handles a failed fetch — the feature degrades or hides itself — instead of throwing ' +
+      'an unhandled error out of a mount effect.',
+  },
+
+  /** The mobile layout renders no navigation whatsoever. */
+  MOBILE_SHELL_HAS_NO_NAVIGATION: {
+    id: 'KPOST-HOME-001',
+    severity: 'High',
+    module: 'Home',
+    summary:
+      'On a mobile viewport the authenticated shell renders no navigation at all — no Quick Access, ' +
+      'and the icon rail is absent.',
+    evidence:
+      'Verified 2026-08-28 (mobile-chrome / Pixel 7, 412px, http://localhost:3000): a signed-in ' +
+      '/home renders exactly TWO buttons in the entire page — "Global Search (Disabled)" and "Start ' +
+      'voice command". There is no "Quick Access" button, no icon rail, and no links, so there is no ' +
+      'way to reach KMail, Katchup, KDirectory, KEcommerce, KNews or Settings at all. The Recents / ' +
+      'Contacts tabs and the search boxes render normally, so this is the navigation specifically, ' +
+      'not a failed page load. 26 of mobile-chrome\'s 28 smoke tests failed on it, every one waiting ' +
+      'for the Quick Access button that the desktop layout provides.\n' +
+      'Quick Access is also the only accessible navigation path KPost has (the rail exposes no ' +
+      'accessible names — KPOST-A11Y-006), so on mobile the product has no navigation for anyone, ' +
+      'assistive technology or not.',
+    expected:
+      'The mobile layout offers a way to reach every module — the Quick Access launcher, or an ' +
+      'equivalent control with a real accessible name.',
+  },
+
   /** Katchup's contacts backend 500s and the app does not handle it. */
   KATCHUP_CONTACTS_500_UNHANDLED: {
     id: 'KPOST-KATCHUP-001',
@@ -141,6 +212,68 @@ export const KNOWN_APP_DEFECTS = {
     expected: 'Rail entries either navigate somewhere or are visibly disabled/absent.',
   },
 
+  /** Firebase Cloud Messaging crashes the whole app on browsers it doesn't support. */
+  FIREBASE_MESSAGING_UNSUPPORTED_BROWSER_CRASH: {
+    id: 'KPOST-GENERAL-001',
+    severity: 'High',
+    module: 'General',
+    summary:
+      'Firebase Cloud Messaging throws an uncaught error on browsers it does not fully support, ' +
+      'crashing the whole app.',
+    evidence:
+      'On every page load — including the signed-out /login screen, before any auth — the app raises ' +
+      'an uncaught "Messaging: This browser doesn\'t support the API\'s required to use the Firebase ' +
+      'SDK. (messaging/unsupported-browser)" from its Firebase Cloud Messaging initialisation. The ' +
+      'dev-server error overlay then covers the page and blocks every subsequent click.\n' +
+      'Re-verified 2026-08-28 on a clean full @smoke run against http://localhost:3000 (a secure ' +
+      'origin, so this is not the insecure-context variant): **28 of 28 WebKit tests failed on it — ' +
+      'the entire project, no exceptions.** Chromium was unaffected in the same run. Firefox now ' +
+      'fails on a different unhandled error instead (KPOST-GENERAL-002, MicInput), and ' +
+      'mobile-chrome on missing navigation (KPOST-HOME-001), so this entry is now specifically the ' +
+      'WebKit/Safari crash.\n' +
+      'The error is uncaught rather than guarded, so a production build would leave Safari users ' +
+      'with a fully broken app rather than a messaging feature that degrades gracefully. The same ' +
+      'unguarded assumption is what makes the app render a blank page on any non-secure origin.',
+    expected:
+      'Firebase Messaging initialisation checks browser support before calling into the SDK, and ' +
+      'disables push notifications instead of throwing when a browser (Safari/WebKit, Firefox) does ' +
+      'not support the required APIs.',
+  },
+
+  /** The app force-logs-out an authenticated session under sustained use. */
+  SESSION_FORCED_LOGOUT_UNDER_SUSTAINED_USE: {
+    id: 'KPOST-AUTH-002',
+    severity: 'High',
+    module: 'Auth',
+    summary:
+      'The app intermittently force-logs-out an authenticated session during sustained use, even ' +
+      'with no other device or browser actually signed in.',
+    evidence:
+      'Observed 2026-08-25: isolated runs of the same tests (1 test, then 6 tests — single ' +
+      'browser, single worker) complete cleanly every time, while a full serial run of the whole ' +
+      'suite repeatedly bounced the session back to /login mid-test, showing the alert "You are ' +
+      'logged out on this device as you logged on another 3rd party device" at a rate of roughly ' +
+      '55 of ~64 tests per project.\n' +
+      '✅ DID NOT REPRODUCE on 2026-08-28. A complete serial run of the whole suite — 260 tests, ' +
+      'all four browser projects, 1.2 hours, every test accounted for — raised this alert ZERO ' +
+      'times, and no bug was filed for it. Every one of that run\'s 191 failures is attributable ' +
+      'to another, named defect. The entry is kept, unfired, so that the detection in ' +
+      '`waitForAppReady` still names it correctly if the app ever does drop a session again; delete ' +
+      'it if a few more full runs stay clean.\n' +
+      '⚠ WHY THE ORIGINAL DIAGNOSIS WAS WRONG. On 2026-08-27 the cause was traced to THIS SUITE, ' +
+      'not the app: tests/auth/ signed in and logged out as the same standard user whose shared ' +
+      'storageState every other spec depends on, and KPost allows one active session per account ' +
+      '— so the auth specs took the session and everything after them ran logged out. Measured ' +
+      'directly: global setup verified the stored session, the auth specs ran, and loading /home ' +
+      'with that same stored state then redirected to /login. The suite now signs the auth ' +
+      'journeys in as a separate account (env.users.auth), which removes that cause entirely.\n' +
+      'Do not quote the old "no other device was signed in" claim: another sign-in was happening, ' +
+      'and it was ours.',
+    expected:
+      'An authenticated session is not force-logged-out while it remains the only device actually ' +
+      'signed in, regardless of how long or how many page loads the session has been active for.',
+  },
+
   /** Logging out does not guard protected routes. */
   LOGOUT_NO_ROUTE_GUARD: {
     id: 'KPOST-AUTH-001',
@@ -224,6 +357,25 @@ export const KNOWN_APP_DEFECTS = {
       'scrolls with a mouse or trackpad but has no tabindex, so a keyboard-only user ' +
       'cannot scroll it and simply cannot see the content past the fold.',
     expected: 'Scrollable regions are focusable (tabindex="0") or expose a keyboard-operable alternative.',
+  },
+
+  /** KPost renders no navigation landmark at all. */
+  A11Y_NO_NAVIGATION_LANDMARK: {
+    id: 'KPOST-A11Y-006',
+    severity: 'High',
+    module: 'Accessibility',
+    summary: 'KPost renders no <nav> element and no [role="navigation"] landmark anywhere in the app.',
+    evidence:
+      'Verified 2026-08-25: page.locator(\'nav, [role="navigation"]\').count() is 0 on /home. An ' +
+      'earlier attempt to axe-scan a navigation landmark directly failed with "No elements found for ' +
+      'include in page Context" — axe cannot scope a scan to something that does not exist, which was ' +
+      'itself the finding. The icon rail (div.icon-KP_03-KMail, ...) is the only in-app navigation and ' +
+      'carries no landmark role, no accessible name and no text — a screen-reader user has no way to ' +
+      'jump to navigation at all, and the one accessible path (Quick Access) is a dialog, not a ' +
+      'persistent nav landmark.',
+    expected:
+      'The app exposes a <nav> element or a [role="navigation"] landmark so assistive technology can ' +
+      'locate and jump to navigation.',
   },
 
   /** Quick Access nests interactive controls inside one another. */

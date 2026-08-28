@@ -1,11 +1,9 @@
 /**
  * Accessibility conformance — WCAG 2.1 A/AA via axe-core.
  *
- * ⚠ UNVERIFIED against the live app: written from the axe API and this bench's
- * conventions, never yet executed against a running KPost. Two accessibility
- * defects are already documented in CLAUDE.md (the login overlay that swallows
- * the Submit click, and the icon rail with no accessible names), so the first
- * real run is expected to be red.
+ * These scans have run against the live app and they are red on purpose: the
+ * login screen returns 3 WCAG A/AA violations and the Home pane 4. Every one is
+ * registered — KPOST-A11Y-001 … -006 — from direct observation on 2026-08-16.
  *
  * That red is signal, not debt. A violation here is an APPLICATION defect:
  * register it in `known-defects.ts` once observed and attach it with
@@ -54,7 +52,7 @@ test.describe('Accessibility — signed in @regression @a11y', () => {
   });
 
   test('the app exposes a navigation landmark', async ({ homePage, page }) => {
-    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_UNLABELLED_FORM_CONTROLS);
+    noteKnownDefect(KNOWN_APP_DEFECTS.A11Y_NO_NAVIGATION_LANDMARK);
     /*
      * This test originally tried to scan `nav, [role="navigation"]` and errored
      * with "No elements found for include in page Context" — axe cannot scope a

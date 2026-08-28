@@ -6,10 +6,19 @@
  * It runs ALONGSIDE the html/json/junit reporters, never instead of them — the
  * Playwright HTML report stays the deep-trace reference.
  *
- * On `onEnd` it does three things, in order, from ONE model:
+ * On `onEnd` it does five things, in order, from ONE model:
  *   1. builds the run model (`run-model.ts`) — counts, completeness, defects;
- *   2. writes `BUG_REPORT.json` / `BUG_REPORT.md` / `DEV_DIGEST.md` / `DEV_DIGEST.json`;
- *   3. POSTs the same model to the external QA Dashboard (application slug `kpost-ui`).
+ *   2. files known defects into the "KPost UI" Bugzilla product (`bugzilla-reporter.ts`)
+ *      and grafts the resulting ticket numbers onto the model;
+ *   3. writes `BUG_REPORT.json` / `BUG_REPORT.md` / `DEV_DIGEST.md` / `DEV_DIGEST.json`;
+ *   4. POSTs the same model to the external QA Dashboard (application slug `kpost-ui`);
+ *   5. uploads each defect's screenshots / videos / traces to that dashboard.
+ *
+ * Bugzilla goes FIRST for one reason: a bug number does not exist until the ticket is
+ * created, so filing last meant neither the file reports nor the dashboard could ever
+ * name the ticket a defect had been filed as. Filing first makes that cross-reference
+ * possible and costs nothing when Bugzilla is unset or unreachable — the step returns
+ * no links and everything downstream behaves exactly as it did before.
  *
  * The API bench splits these across two reporters and documents an ordering rule to
  * keep them in step; building one model and projecting it removes the possibility of
@@ -56,24 +65,34 @@ import type {
 import { env } from '../config/env';
 import { KNOWN_APP_DEFECTS, type KnownDefect } from '../utils/known-defects';
 import { writeBugReport } from './bug-report';
+import { fileBugzillaDefects } from './bugzilla-reporter';
 import { writeDevDigest } from './dev-digest';
-import { type DefectSighting, buildRunModel, verdict } from './run-model';
+import { createTraceBudget, orderEvidence } from './evidence';
+import {
+  type BugzillaLink,
+  type DefectSighting,
+  type UnattributedFailure,
+  buildRunModel,
+  verdict,
+  withBugzillaLinks,
+} from './run-model';
 
 const UPLOAD_TIMEOUT_MS = 15_000;
 /** Evidence upload is a second round trip; give it its own, longer budget. */
 const ATTACHMENT_TIMEOUT_MS = 60_000;
 /**
- * Per-defect ceiling. A defect sighted across four browser projects yields four
- * screenshots and four videos, which is useful; a defect sighted by fifty tests
- * would upload a hundred files that nobody opens. The cap keeps the dashboard's
- * Evidence panel readable and the upload bounded.
+ * The dashboard's ingest route buffers an upload in memory and rejects more than
+ * 20 files in one request (multer's `files` limit). That is a per-REQUEST limit,
+ * not a per-defect one, so evidence is uploaded in batches of this size until a
+ * defect has none left — **every** screenshot, video and trace reaches the
+ * dashboard, exactly as they all reach Bugzilla. Nothing is sampled.
  */
-const MAX_FILES_PER_DEFECT = 12;
+const FILES_PER_UPLOAD_REQUEST = 20;
 /** The kinds Playwright emits that are worth keeping. */
 const WANTED_ATTACHMENTS = new Set(['screenshot', 'video', 'trace']);
 
 /** One evidence file Playwright captured, tagged with where it came from. */
-interface DefectFile {
+export interface DefectFile {
   readonly kind: string;
   readonly path: string;
   readonly contentType: string;
@@ -93,6 +112,8 @@ export default class DashboardReporter implements Reporter {
     string,
     { defect: KnownDefect; seen: DefectSighting[]; files: DefectFile[] }
   >();
+  /** Failed tests carrying no known-defect annotation, keyed by test id. */
+  private readonly unattributed = new Map<string, UnattributedFailure>();
 
   onBegin(config: FullConfig, suite: Suite): void {
     this.startedAt = Date.now();
@@ -123,13 +144,55 @@ export default class DashboardReporter implements Reporter {
     // then passed is one passed test, not one failure plus one pass.
     this.outcomes.set(test.id, result.status);
 
-    for (const annotation of test.annotations) {
-      if (annotation.type !== 'known-app-defect' || !annotation.description) continue;
-      const defect = Object.values(KNOWN_APP_DEFECTS).find((known) =>
-        annotation.description?.startsWith(`${known.id} `),
-      );
-      if (!defect) continue;
-      const project = test.parent.project()?.name ?? 'unknown';
+    const annotatedDefects = test.annotations
+      .filter((annotation) => annotation.type === 'known-app-defect' && annotation.description)
+      .map((annotation) =>
+        Object.values(KNOWN_APP_DEFECTS).find((known) => annotation.description?.startsWith(`${known.id} `)),
+      )
+      .filter((defect) => defect !== undefined) as KnownDefect[];
+
+    /*
+     * A failure with no defect attached is the run's unexplained residue, and
+     * it has to be counted somewhere or "191 failed, 17 defects" is a claim
+     * nobody can check. Keyed by test id so a retry replaces rather than
+     * duplicates, and cleared if a later attempt does attribute one.
+     */
+    const isFailure = result.status !== 'passed' && result.status !== 'skipped';
+    if (isFailure && annotatedDefects.length === 0) {
+      this.unattributed.set(test.id, {
+        testTitle: test.title,
+        project: test.parent.project()?.name ?? 'unknown',
+        file: test.location.file.split(/[\\/]/).slice(-2).join('/'),
+        error: firstLineOf(result.error?.message ?? result.errors?.[0]?.message ?? ''),
+      });
+    } else {
+      this.unattributed.delete(test.id);
+    }
+
+    if (annotatedDefects.length === 0) return;
+
+    /*
+     * `noteKnownDefect()` is called at the TOP of a test, before its own
+     * assertion — that annotation survives even when a later, unrelated crash
+     * (the session force-logout, the Firebase overlay) cuts the test off
+     * first. A test can end up carrying that stale annotation plus a fresh
+     * one for whatever actually happened. The thrown error is the ground
+     * truth: `noteKnownDefect()`'s return value is what a test passes as its
+     * `expect()` message, so the error text contains a defect's id only when
+     * THAT defect's own assertion genuinely fired this run. Trust that over
+     * the annotation list, and fall back to crediting every annotation only
+     * when none of them show up in the error (the legitimate case of one axe
+     * scan finding several simultaneous violations, none of which annotate
+     * their id into a shared error message).
+     */
+    const errorText = [result.error?.message, ...(result.errors ?? []).map((error) => error.message)]
+      .filter((message): message is string => Boolean(message))
+      .join('\n');
+    const identified = annotatedDefects.filter((defect) => errorText.includes(defect.id));
+    const attributedDefects = identified.length > 0 ? identified : annotatedDefects;
+
+    const project = test.parent.project()?.name ?? 'unknown';
+    for (const defect of attributedDefects) {
       /*
        * Annotated rather than inferred: without it the `??` produces a union of
        * the stored entry and the fresh literal, and `.push` on a union of array
@@ -177,7 +240,7 @@ export default class DashboardReporter implements Reporter {
       return;
     }
 
-    const model = buildRunModel({
+    const built = buildRunModel({
       status: result.status,
       environment: env.testEnv,
       baseURL: env.baseURL,
@@ -186,8 +249,33 @@ export default class DashboardReporter implements Reporter {
       durationMs: Date.now() - this.startedAt,
       outcomes: this.outcomes,
       sightings: this.sightings,
+      unattributedFailures: [...this.unattributed.values()],
       defectOwner: env.defectOwner,
     });
+
+    /*
+     * Bugzilla runs FIRST, from the same model, so the ticket numbers it creates
+     * (or finds already open) can be carried into everything downstream: the file
+     * reports name the ticket, and the dashboard defect deep-links to it. It
+     * never fails the run — an outage returns no links and the rest proceeds
+     * exactly as it did before, just without the cross-reference.
+     */
+    /*
+     * Keyed by defect id — one ticket per defect, carrying every browser's
+     * evidence. Which browser a given file came from is never lost: it is in
+     * the attachment's own name and summary (`chromium--<test>--…`), so a
+     * reader can tell them apart without the files being split across tickets.
+     */
+    const filesByDefect = new Map(
+      [...this.sightings.entries()].map(([id, entry]) => [id, entry.files]),
+    );
+    let bugzillaLinks = new Map<string, BugzillaLink>();
+    try {
+      bugzillaLinks = await fileBugzillaDefects(built, filesByDefect);
+    } catch (error) {
+      console.warn(`[bugzilla] defect filing failed: ${messageOf(error)}`);
+    }
+    const model = withBugzillaLinks(built, bugzillaLinks);
 
     // Loudest first: whoever is watching the terminal must see truncation before they
     // see a pass rate.
@@ -215,7 +303,7 @@ export default class DashboardReporter implements Reporter {
 
     // Evidence hangs off a defect, so it can only be uploaded once the run POST
     // has created those defects. A failed or skipped push means nothing to attach to.
-    if (await this.push(model)) await this.pushAttachments();
+    if (await this.push(model)) await this.pushAttachments(filesByDefect);
   }
 
   private async push(model: ReturnType<typeof buildRunModel>): Promise<boolean> {
@@ -299,80 +387,89 @@ export default class DashboardReporter implements Reporter {
    * the run push is: the artifacts are already on disk and in the HTML report, so
    * a dashboard problem must not colour the suite's result.
    */
-  private async pushAttachments(): Promise<void> {
+  private async pushAttachments(filesByDefect: ReadonlyMap<string, DefectFile[]>): Promise<void> {
     const { ingestUrl, apiKey } = env.dashboard;
     if (!ingestUrl || !apiKey) return;
 
-    const withFiles = [...this.sightings.values()].filter((entry) => entry.files.length > 0);
+    // Keyed `<defect>@<browser>`, exactly the ids the dashboard now holds, so a
+    // browser's evidence lands on that browser's defect and nowhere else.
+    const withFiles = [...filesByDefect.entries()].filter(([, files]) => files.length > 0);
     if (withFiles.length === 0) return;
 
     const base = ingestUrl.replace(/\/+$/, '');
     let uploaded = 0;
     let failed = 0;
 
-    for (const entry of withFiles) {
-      const capped = entry.files.slice(0, MAX_FILES_PER_DEFECT);
-      const form = new FormData();
-      let attached = 0;
+    for (const [defectId, files] of withFiles) {
+      // Same ordering as the Bugzilla ticket, so the evidence reads the same in
+      // both places: screenshots and videos first and unlimited, traces last on
+      // a byte budget. Also deduplicates by artifact path — the dashboard
+      // replaces on (defect, kind, filename), so a repeat would overwrite
+      // rather than add.
+      const distinct = orderEvidence(files);
+      const budget = createTraceBudget();
 
-      for (const file of capped) {
-        /*
-         * A retried test can report an artifact that was cleaned up between
-         * attempts, so a missing file is normal rather than an error — skip it and
-         * keep the rest of the defect's evidence.
-         */
-        const bytes = await fs.readFile(file.path).catch(() => null);
-        if (!bytes) continue;
-        // The dashboard replaces on (defect, kind, filename). Four browser projects
-        // sighting one defect would otherwise upload four files called
-        // "screenshot.png" and keep only the last, so the name carries its origin.
-        const name = `${slug(file.project)}--${slug(file.testTitle)}${extensionOf(file.path)}`;
-        form.append(file.kind, new Blob([bytes], { type: file.contentType }), name);
-        attached += 1;
-      }
+      // Batched, not truncated: the 20 is the ingest route's per-request limit,
+      // so we simply make more requests until the defect's evidence is gone.
+      for (let start = 0; start < distinct.length; start += FILES_PER_UPLOAD_REQUEST) {
+        const batch = distinct.slice(start, start + FILES_PER_UPLOAD_REQUEST);
+        const form = new FormData();
+        let attached = 0;
 
-      if (attached === 0) continue;
+        for (const file of batch) {
+          /*
+           * A retried test can report an artifact that was cleaned up between
+           * attempts, so a missing file is normal rather than an error — skip it and
+           * keep the rest of the defect's evidence.
+           */
+          const bytes = await fs.readFile(file.path).catch(() => null);
+          if (!bytes) continue;
+          if (!budget.allows(file.kind, bytes.length)) continue;
+          // Four browser projects sighting one defect would otherwise upload four
+          // files called "screenshot.png" and keep only the last, so the name
+          // carries its origin.
+          const name = `${slug(file.project)}--${slug(file.testTitle)}--${file.kind}${extensionOf(file.path)}`;
+          form.append(file.kind, new Blob([bytes], { type: file.contentType }), name);
+          attached += 1;
+        }
 
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), ATTACHMENT_TIMEOUT_MS);
-        const response = await fetch(
-          `${base}/defects/${encodeURIComponent(entry.defect.id)}/attachments`,
-          {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${apiKey}` },
-            body: form,
-            signal: controller.signal,
-          },
-        );
-        clearTimeout(timer);
+        if (attached === 0) continue;
 
-        if (!response.ok) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), ATTACHMENT_TIMEOUT_MS);
+          const response = await fetch(
+            `${base}/defects/${encodeURIComponent(defectId)}/attachments`,
+            {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${apiKey}` },
+              body: form,
+              signal: controller.signal,
+            },
+          );
+          clearTimeout(timer);
+
+          if (!response.ok) {
+            failed += 1;
+            const detail = (await response.text().catch(() => '')).slice(0, 200);
+            console.warn(
+              `[dashboard] evidence for ${defectId} rejected: HTTP ${response.status} ${detail}`,
+            );
+            continue;
+          }
+          const body = (await response.json().catch(() => ({}))) as { stored?: number };
+          uploaded += body.stored ?? attached;
+        } catch (error) {
           failed += 1;
-          const detail = (await response.text().catch(() => '')).slice(0, 200);
-          console.warn(
-            `[dashboard] evidence for ${entry.defect.id} rejected: HTTP ${response.status} ${detail}`,
-          );
-          continue;
+          console.warn(`[dashboard] evidence for ${defectId} not uploaded: ${messageOf(error)}`);
         }
-        const body = (await response.json().catch(() => ({}))) as { stored?: number };
-        uploaded += body.stored ?? attached;
-        if (entry.files.length > capped.length) {
-          console.info(
-            `[dashboard] ${entry.defect.id}: uploaded the first ${capped.length} of ` +
-              `${entry.files.length} artifacts (per-defect cap).`,
-          );
-        }
-      } catch (error) {
-        failed += 1;
-        console.warn(`[dashboard] evidence for ${entry.defect.id} not uploaded: ${messageOf(error)}`);
       }
     }
 
     if (uploaded > 0) {
       console.info(
         `[dashboard] evidence uploaded: ${uploaded} file(s) across ${withFiles.length} defect(s)` +
-          (failed > 0 ? ` (${failed} defect(s) failed)` : ''),
+          (failed > 0 ? ` (${failed} upload request(s) failed)` : ''),
       );
     }
   }
@@ -384,6 +481,21 @@ export default class DashboardReporter implements Reporter {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** First meaningful line of an error, with Playwright's ANSI colouring stripped. */
+function firstLineOf(message: string): string {
+  // Playwright colourises assertion text; without stripping it the escapes
+  // would show up verbatim in the report and in the Bugzilla ticket.
+  // eslint-disable-next-line no-control-regex
+  const plain = message.replace(new RegExp(String.fromCharCode(27) + '\\[[0-9;]*m', 'g'), '');
+  return (
+    plain
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean)
+      ?.slice(0, 200) ?? '(no error message)'
+  );
 }
 
 function relative(absolute: string): string {

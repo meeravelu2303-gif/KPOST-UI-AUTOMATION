@@ -39,7 +39,13 @@ function buildDigestJson(model: RunModel): Record<string, unknown> {
     verdict: verdict(model),
     incomplete: model.run.incomplete,
     incompleteReasons: model.run.incompleteReasons,
-    run: { ...model.run, passRate: passRate(model) },
+    run: {
+      ...model.run,
+      passRate: passRate(model),
+      // Explicit, so a machine reading the digest can check the same thing a
+      // person does: is every failure accounted for?
+      attributedFailures: model.run.failed - model.run.unattributedFailures.length,
+    },
     bySeverity: model.summary.bySeverity,
     byModule: model.summary.byModule,
     defects: model.defects.map((defect) => ({
@@ -90,8 +96,35 @@ function renderDigest(model: RunModel): string {
     `| Pass rate (of tests that ran) | ${rate === null ? 'n/a' : `${rate.toFixed(1)}%`} |`,
     `| Duration | ${model.run.durationSeconds}s |`,
     `| Projects | ${model.run.projects.join(', ') || '—'} |`,
+    // The number that makes the defect count checkable: how much of the red is
+    // explained. On a one-screen triage doc this belongs in the table, not
+    // three sections down.
+    ...(model.run.failed > 0
+      ? [
+          `| Failures explained by a defect | ${model.run.failed - model.run.unattributedFailures.length} of ${model.run.failed} |`,
+          `| Failures with NO defect | ${model.run.unattributedFailures.length} |`,
+        ]
+      : []),
     '',
   );
+
+  if (model.run.unattributedFailures.length > 0) {
+    lines.push(
+      '## ⚠ Unexplained failures — triage these first',
+      '',
+      'These failed with no entry in `known-defects.ts`, so no ticket exists for them. Each is',
+      'either an app defect nobody has registered yet or a test that needs fixing.',
+      '',
+      '| Browser | Spec | Test | Error |',
+      '| --- | --- | --- | --- |',
+      ...model.run.unattributedFailures.map(
+        (f) =>
+          `| \`${f.project}\` | \`${f.file}\` | ${f.testTitle.replace(/\|/g, '\\|')} | ` +
+          `${f.error.replace(/\|/g, '\\|')} |`,
+      ),
+      '',
+    );
+  }
 
   if (model.defects.length === 0) {
     lines.push('## Known application defects observed', '', 'None in this run.', '');

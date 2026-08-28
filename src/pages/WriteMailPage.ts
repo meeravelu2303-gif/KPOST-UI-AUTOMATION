@@ -1,6 +1,7 @@
 import { type Locator, type Page, expect, test } from '@playwright/test';
 import { AppShellPage } from './AppShellPage';
 import type { MailDraft } from './KMailPage';
+import { KNOWN_APP_DEFECTS } from '../utils/known-defects';
 
 /**
  * "Write Mail" — the KPost mail composer.
@@ -59,7 +60,11 @@ export class WriteMailPage extends AppShellPage {
   async openFromLauncher(): Promise<void> {
     await test.step('Open the Write Mail composer', async () => {
       await this.launchModule('Write Mail');
-      await this.expectPath(/\/writemail/i);
+      // The composer renders alongside the KMail pane, so it inherits KMail's
+      // sign-out (KPOST-KMAIL-003) — verified in the 2026-08-28 run, where this
+      // navigation landed on /login. Name that cause instead of reporting a bare
+      // "toHaveURL failed" with no defect attached.
+      await this.expectModuleRoute(/\/writemail/i, KNOWN_APP_DEFECTS.KMAIL_OPENING_SIGNS_USER_OUT);
       // KMail's pane loads alongside the composer and still raises
       // KPOST-KMAIL-001; clear its dev-only overlay so the form is clickable.
       await this.dismissDevErrorOverlay();

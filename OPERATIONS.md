@@ -12,9 +12,9 @@ what to do when a run comes back wrong. Mirrors `OPERATIONS.md` in the API bench
 
 ## 1. What this bench does
 
-Drives the KPost React app (`https://localhost:3000`) through Playwright across four
-browser projects — chromium, firefox, webkit, mobile-chrome. **64 specs × 4 projects
-= 256 tests.**
+Drives the KPost React app (`http://localhost:3000`) through Playwright across four
+browser projects — chromium, firefox, webkit, mobile-chrome. **79 specs × 4 projects
+= 316 tests.**
 
 Every run produces, automatically:
 
@@ -55,10 +55,12 @@ matter operationally:
 
 | Variable | Effect |
 | --- | --- |
-| `BASE_URL` | The app under test. Also the source of the environment label when `TEST_ENV` is unset. |
+| `BASE_URL` | The app under test. Also the source of the environment label when `TEST_ENV` is unset. **Must be a secure context** — `http://localhost:3000` or an `https://` origin. A plain-HTTP LAN IP renders a blank page and fails the whole run; see §7. |
 | `TEST_ENV` | Overrides the environment label (`Local` / `QA` / `Staging` / `Production`). Leave unset to infer it from `BASE_URL`. |
 | `STANDARD_USER_*`, `ADMIN_USER_*` | Required. Missing → startup fails loudly, by design. |
-| `DASHBOARD_INGEST_URL`, `DASHBOARD_API_KEY` | Both or neither. Unset → the dashboard push no-ops. |
+| `AUTH_USER_*` | Optional. The account `tests/auth/` signs in and out as; defaults to `ADMIN_USER_*`. **Never point it at the standard user** — it would take the one session KPost allows per account and log the rest of the suite out. |
+| `DASHBOARD_INGEST_URL`, `DASHBOARD_API_KEY` | Both or neither. Unset → the dashboard push no-ops. The key must belong to an **active** application with slug `kpost-ui` on the dashboard, or ingest answers `401 {"error":"Invalid API key"}`. |
+| `BUGZILLA_URL`, `BUGZILLA_API_KEY` | Both or neither. `BUGZILLA_DRY_RUN=false` files real tickets. |
 | `MAIL_RECIPIENT`, `DIRECTORY_USER_*` | Optional accounts that un-skip gated specs. |
 
 ---
@@ -66,11 +68,11 @@ matter operationally:
 ## 3. Running tests
 
 ```bash
-npm test                  # everything, all four projects (256 tests)
+npm test                  # everything, all four projects (316 tests)
 npm run test:serial       # workers=1 — REQUIRED for app-dependent runs, see below
 npm run test:smoke        # @smoke only
 npm run test:regression   # @regression only
-npm run test:list         # count/enumerate without executing (posts nothing)
+npm run test:list         # count/enumerate without executing (posts nothing, overwrites nothing)
 ```
 
 By browser: `test:chromium`, `test:firefox`, `test:webkit`, `test:mobile`.
@@ -146,20 +148,20 @@ never invent an entry to explain a failure you have not reproduced.
 ## 6. When a run comes back incomplete
 
 This is the failure mode worth knowing by name. A degraded app can kill a run after a
-handful of tests. Ten tests that pass out of 256 planned is **not** a small green run,
+handful of tests. Ten tests that pass out of 260 planned is **not** a small green run,
 and this bench refuses to let it look like one.
 
 **How it shows up.** In the terminal, before any pass rate:
 
 ```
-[dashboard] ⚠ run INCOMPLETE: 10/256 tests reached a result (status=interrupted). Dashboard will flag this run.
+[dashboard] ⚠ run INCOMPLETE: 10/260 tests reached a result (status=interrupted). Dashboard will flag this run.
 [dashboard]   - Playwright ended the run with status "interrupted" — it stopped before working through the plan.
-[dashboard]   - 10 of 256 planned tests reached a result; 246 never produced one.
+[dashboard]   - 10 of 260 planned tests reached a result; 250 never produced one.
 [dashboard]   Counts are reported as observed — nothing is scaled to the plan.
 ```
 
 `BUG_REPORT.md` and `DEV_DIGEST.md` both open with an **⚠ INCOMPLETE RUN** banner. On
-the dashboard the run is flagged suspect, because it receives `totalTests: 256` with
+the dashboard the run is flagged suspect, because it receives `totalTests: 260` with
 only 10 accounted for and its own consistency check catches the gap. Any warning the
 dashboard returns is echoed back into your terminal.
 
@@ -169,15 +171,31 @@ truncated.
 
 **What to do.**
 
-1. Is the app actually up? Open `BASE_URL` in a browser. KPost's first authenticated
-   paint can exceed 10s; a dead app looks similar for the first few seconds.
-2. Read the first *failing* test in `npm run report`. A truncated run usually has one
+1. Is the app actually up **and reachable at a secure origin**? Open `BASE_URL` in a
+   browser. KPost's first authenticated paint can exceed 10s, so a dead app looks
+   similar for the first few seconds — but a *blank* page that never fills in is the
+   secure-context failure: on a plain-HTTP LAN address (`http://192.168.x.x:3000`)
+   `navigator.serviceWorker` is undefined, the app throws before its first paint, and
+   the server still answers 200. Use `http://localhost:3000`, or start the dev server
+   with `HTTPS=true` and use `https://…`. Symptom in the log: global setup times out
+   after 90s waiting for `textbox "Enter KPOST ID / Mobile number"`.
+2. Do the credentials still exist? `STANDARD_USER_EMAIL` silently going stale looks
+   like a hung login. Check it directly — a registered account answers with its
+   profile, an unknown one answers 500:
+   `curl -s -X POST "$BASE_URL/api/v2/signupLogin/fetchUserDetails/" -H "Content-Type: application/json" -d '{"kpostID":"<the id>","countryID":1}'`
+3. Read the first *failing* test in `npm run report`. A truncated run usually has one
    real cause at the front and 200 casualties behind it.
-3. Check whether the app raised a dev-server overlay — `assertNoAppErrorOverlay()`
+4. Check whether the app raised a dev-server overlay — `assertNoAppErrorOverlay()`
    surfaces the real compiler or runtime error instead of "element not found".
-4. Re-run serially: `npm run test:serial`. If the first run died on session
+5. Re-run serially: `npm run test:serial`. If the first run died on session
    contention, this is the fix.
-5. Only once the run completes should you read its pass rate as coverage.
+6. Did the shared session die? Look for `session-lost` annotations and the message
+   "The session is no longer authenticated". The suite re-seeds the session after such
+   a failure so the rest of the run survives, and **nothing outside the suite may hold
+   a session on the standard account while it runs** — one extra browser tab, or a
+   stray script loading `.auth/standard.json`, takes the one session KPost allows and
+   evicts the run.
+7. Only once the run completes should you read its pass rate as coverage.
 
 ---
 

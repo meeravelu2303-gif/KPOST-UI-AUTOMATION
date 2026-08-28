@@ -24,6 +24,7 @@
 import { type Locator, type Page, expect, test } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { assertNoAppErrorOverlay, dismissRuntimeErrorOverlay } from '../utils/react-helpers';
+import { KNOWN_APP_DEFECTS, type KnownDefect, noteKnownDefect } from '../utils/known-defects';
 import { logger } from '../utils/logger';
 import type { KPostModule } from '../types';
 
@@ -59,6 +60,9 @@ const LOGOUT_RAIL_ICON = 'icon-KP_18-Logout';
  */
 const SHELL_RENDER_TIMEOUT = 45_000;
 
+/** Widest viewport still treated as "mobile" for defect attribution (Pixel 7 is 412px). */
+const MOBILE_VIEWPORT_MAX_WIDTH = 600;
+
 export abstract class AppShellPage extends BasePage {
   protected readonly quickAccessButton: Locator;
   protected readonly globalSearchButton: Locator;
@@ -93,7 +97,16 @@ export abstract class AppShellPage extends BasePage {
   /** Open the launcher from the top-bar button. */
   async openQuickAccess(): Promise<void> {
     await test.step('Open the Quick Access launcher', async () => {
-      await this.click(this.quickAccessButton);
+      try {
+        await this.click(this.quickAccessButton);
+      } catch (error) {
+        // On mobile there IS no Quick Access button, so this times out waiting
+        // for an element the layout never renders (KPOST-HOME-001). Attributing
+        // it only in `expectShellVisible` missed 19 real sightings in the
+        // 2026-08-28 run, because most tests reach the launcher through here.
+        await this.attributeMissingShell();
+        throw error;
+      }
       await expect(this.quickAccessDialog).toBeVisible();
     });
   }
@@ -114,6 +127,20 @@ export abstract class AppShellPage extends BasePage {
     });
   }
 
+  /**
+   * The launcher entry for a module, for specs that need to assert its
+   * ABSENCE.
+   *
+   * `expectModuleAvailable()` covers "it is offered"; proving a search filtered
+   * something out needs the locator itself, because there is no negative form
+   * of that helper. Exposed read-only — clicking still goes through
+   * `launchModule()` so every navigation keeps its `test.step` and its
+   * actionability handling.
+   */
+  launcherEntry(module: KPostModule): Locator {
+    return this.moduleCard(module);
+  }
+
   /** The launcher card for a module, located by its accessible name. */
   protected moduleCard(module: KPostModule): Locator {
     return this.quickAccessDialog.getByRole('button', { name: new RegExp(`\\b${module}\\b`) }).first();
@@ -123,7 +150,12 @@ export abstract class AppShellPage extends BasePage {
   async expectModuleAvailable(module: KPostModule): Promise<void> {
     await test.step(`Expect "${module}" to be offered in Quick Access`, async () => {
       if (!(await this.quickAccessDialog.isVisible())) await this.openQuickAccess();
-      await expect(this.moduleCard(module)).toBeVisible();
+      try {
+        await expect(this.moduleCard(module)).toBeVisible();
+      } catch (error) {
+        await this.attributeMissingShell();
+        throw error;
+      }
     });
   }
 
@@ -131,7 +163,12 @@ export abstract class AppShellPage extends BasePage {
   async launchModule(module: KPostModule): Promise<void> {
     await test.step(`Launch "${module}" from Quick Access`, async () => {
       if (!(await this.quickAccessDialog.isVisible())) await this.openQuickAccess();
-      await this.click(this.moduleCard(module));
+      try {
+        await this.click(this.moduleCard(module));
+      } catch (error) {
+        await this.attributeMissingShell();
+        throw error;
+      }
       await expect(this.quickAccessDialog).toBeHidden();
     });
   }
@@ -197,11 +234,54 @@ export abstract class AppShellPage extends BasePage {
   // Session
   // ---------------------------------------------------------------------------
 
-  /** Assert the shell is present — the cheapest proof we are still signed in. */
+  /**
+   * Assert the shell is present — the cheapest proof we are still signed in.
+   *
+   * When the Quick Access button is missing, the failure is worth naming rather
+   * than reporting as "element(s) not found". On a mobile viewport it is
+   * KPOST-HOME-001: the shell renders with no navigation at all, so there is
+   * nothing to launch a module from. The check runs only after the assertion has
+   * genuinely failed, and only credits the defect when the page really is
+   * signed-in-but-navigation-less — a logged-out page or a desktop viewport
+   * falls through to the original error.
+   */
   async expectShellVisible(): Promise<void> {
     await test.step('Expect the authenticated app shell', async () => {
-      await expect(this.quickAccessButton).toBeVisible({ timeout: SHELL_RENDER_TIMEOUT });
+      try {
+        await expect(this.quickAccessButton).toBeVisible({ timeout: SHELL_RENDER_TIMEOUT });
+      } catch (error) {
+        await this.attributeMissingShell();
+        throw error;
+      }
     });
+  }
+
+  /**
+   * Explain a missing Quick Access button when the cause is known.
+   *
+   * Annotates only; the caller still throws. Silent on anything it cannot
+   * positively identify, because a guess in a bug report is worse than a gap.
+   */
+  private async attributeMissingShell(): Promise<void> {
+    if (/\/login/i.test(this.page.url())) return; // Logged out — a different story.
+    const viewport = this.page.viewportSize();
+    const isMobile = viewport !== null && viewport.width <= MOBILE_VIEWPORT_MAX_WIDTH;
+    if (!isMobile) return;
+    // Confirm the page really is a rendered, signed-in shell that simply has no
+    // navigation — rather than a page that failed to load, which would be a
+    // different problem wearing the same symptom. Any one of these is enough:
+    // the app renders different content per module, so requiring tabs alone
+    // (as the first version did) missed every non-Home screen.
+    const shellRendered = await Promise.all([
+      this.page.getByRole('tab').first().isVisible().catch(() => false),
+      this.voiceCommandButton.isVisible().catch(() => false),
+      this.globalSearchButton.isVisible().catch(() => false),
+    ]).then((results) => results.some(Boolean));
+    if (!shellRendered) return;
+    // And the defect is the ABSENCE of the launcher — if it is there, whatever
+    // just failed was something else.
+    if ((await this.quickAccessButton.count().catch(() => 0)) > 0) return;
+    noteKnownDefect(KNOWN_APP_DEFECTS.MOBILE_SHELL_HAS_NO_NAVIGATION);
   }
 
   /**
@@ -236,6 +316,31 @@ export abstract class AppShellPage extends BasePage {
         test.info().annotations.push({ type: 'dismissed-app-error', description: detail });
       }
     });
+  }
+
+  /**
+   * Assert we landed on a module's route, and name the cause when we did not.
+   *
+   * Checking the URL *before* asserting looks tidier and is wrong: the sign-out
+   * redirect is often still in flight at that moment, so the pre-check sees the
+   * old URL, falls through, and the failure lands with no defect attached. That
+   * is exactly how three real KPOST-KMAIL-003 sightings were reported as
+   * anonymous "toHaveURL failed" in the 2026-08-28 run.
+   *
+   * So: assert first, and only once it has genuinely failed ask where we ended
+   * up. By then the redirect has settled and the answer is trustworthy.
+   */
+  protected async expectModuleRoute(pattern: RegExp, signedOutDefect: KnownDefect): Promise<void> {
+    try {
+      await this.expectPath(pattern);
+    } catch (error) {
+      if (!/\/login/i.test(this.page.url())) throw error;
+      const message = noteKnownDefect(signedOutDefect);
+      throw new Error(
+        `${signedOutDefect.id} — ${message}\n\nExpected to be on ${pattern}, but the app signed ` +
+          `the session out and went to ${this.page.url()}.`,
+      );
+    }
   }
 
   /** Assert the app has NOT bounced us to the login screen. */

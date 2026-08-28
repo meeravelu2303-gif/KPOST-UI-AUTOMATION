@@ -18,7 +18,13 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { type RunModel, passRate, severityRank, verdict } from './run-model';
+import {
+  type RunModel,
+  type UnattributedFailure,
+  passRate,
+  severityRank,
+  verdict,
+} from './run-model';
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -124,11 +130,13 @@ function renderMarkdown(model: RunModel): string {
     '',
     '### Defect index',
     '',
-    '| ID | Severity | Module | Title |',
-    '| --- | --- | --- | --- |',
+    '| ID | Severity | Module | Bugzilla | Title |',
+    '| --- | --- | --- | --- | --- |',
     ...model.defects.map(
       (defect) =>
-        `| ${defect.displayId} | ${defect.severity} | ${defect.module} | ${escapePipes(defect.title)} |`,
+        `| ${defect.displayId} | ${defect.severity} | ${defect.module} | ` +
+        `${defect.bugzillaId ? `[#${defect.bugzillaId}](${defect.bugzillaUrl})` : '—'} | ` +
+        `${escapePipes(defect.title)} |`,
     ),
     '',
     '---',
@@ -141,8 +149,14 @@ function renderMarkdown(model: RunModel): string {
     lines.push(
       `### ${defect.displayId} — ${defect.title}`,
       '',
-      `- **Severity:** ${defect.severity}`,
+      `- **Severity:** ${defect.severity} · **Priority:** ${defect.priority} · **Category:** ${defect.category}`,
       `- **Module:** ${defect.module}`,
+      `- **Owner:** ${defect.owner}`,
+      // Present only when this run actually filed (or found) the ticket, so the
+      // report never claims a bug number that does not exist.
+      ...(defect.bugzillaId
+        ? [`- **Bugzilla:** [bug #${defect.bugzillaId}](${defect.bugzillaUrl})`]
+        : []),
       '',
       '**Evidence**',
       '',
@@ -156,10 +170,27 @@ function renderMarkdown(model: RunModel): string {
       '',
       defect.actual,
       '',
+      '**Browsers affected**',
+      '',
+      '| Browser | Tests that saw it |',
+      '| --- | --- |',
+      ...Object.entries(defect.browsers)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([browser, count]) => `| \`${browser}\` | ${count} |`),
+      '',
+      ...Object.entries(defect.sightingsByBrowser)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .flatMap(([browser, titles]) => [
+          `_${browser}_:`,
+          ...titles.map((title) => `- ${escapePipes(title)}`),
+          '',
+        ]),
       '---',
       '',
     );
   }
+
+  lines.push(...renderUnattributed(model));
 
   lines.push(
     '_These are **application** defects confirmed against the live app, registered in',
@@ -172,6 +203,67 @@ function renderMarkdown(model: RunModel): string {
   );
 
   return `${lines.join('\n')}\n`;
+}
+
+/**
+ * The failures no defect explains.
+ *
+ * This section is what makes the defect count checkable. "191 failed, 17
+ * defects" invites the obvious question — what about the other 174? — and the
+ * answer is only trustworthy if the report shows its own residue instead of
+ * leaving the reader to work it out. An empty residue is stated explicitly too:
+ * "every failure is accounted for" is a claim worth making out loud.
+ */
+function renderUnattributed(model: RunModel): string[] {
+  const orphans = model.run.unattributedFailures;
+  if (model.run.failed === 0) return [];
+
+  if (orphans.length === 0) {
+    return [
+      '## Failure accounting',
+      '',
+      `All **${model.run.failed}** failing test(s) are accounted for by the ` +
+        `${model.summary.total} defect(s) above — none is unexplained.`,
+      '',
+      '---',
+      '',
+    ];
+  }
+
+  // Group by error text: unexplained failures usually share a handful of causes,
+  // and a grouped list is a triage queue where a flat one is just a wall.
+  const byCause = new Map<string, UnattributedFailure[]>();
+  for (const failure of orphans) {
+    const bucket = byCause.get(failure.error) ?? [];
+    bucket.push(failure);
+    byCause.set(failure.error, bucket);
+  }
+
+  return [
+    '## ⚠ Failures with no registered defect',
+    '',
+    `**${orphans.length}** of this run's **${model.run.failed}** failing test(s) carry no entry ` +
+      `from \`src/utils/known-defects.ts\`, so no ticket was filed for them. The other ` +
+      `${model.run.failed - orphans.length} are explained by the ${model.summary.total} defect(s) above.`,
+    '',
+    'Each of these is either an application defect nobody has registered yet, or a test that ' +
+      'needs fixing. Both need a human — that is why they are listed rather than counted.',
+    '',
+    ...[...byCause.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .flatMap(([cause, failures]) => [
+        `### ${failures.length}× ${escapePipes(cause)}`,
+        '',
+        '| Browser | Spec | Test |',
+        '| --- | --- | --- |',
+        ...failures.map(
+          (f) => `| \`${f.project}\` | \`${f.file}\` | ${escapePipes(f.testTitle)} |`,
+        ),
+        '',
+      ]),
+    '---',
+    '',
+  ];
 }
 
 function formatPassRate(model: RunModel): string {

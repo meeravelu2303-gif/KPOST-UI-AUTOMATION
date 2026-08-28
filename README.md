@@ -1,7 +1,7 @@
 # KPost UI Automation Framework
 
 Production-grade UI test automation for the **KPost** ReactJS application
-(`https://localhost:3000`), built with **Playwright + TypeScript**.
+(`http://localhost:3000`), built with **Playwright + TypeScript**.
 
 It is designed to live alongside your existing Playwright **API** automation in
 the same ecosystem, sharing tooling, conventions, and CI while remaining an
@@ -137,7 +137,7 @@ Tests never touch `process.env`, raw selectors, or `page.goto` details directly
 ## Prerequisites
 
 - **Node.js ≥ 18** (CI uses 20).
-- The **KPost app running at `https://localhost:3000`** with seeded test users
+- The **KPost app running at `http://localhost:3000`** with seeded test users
   matching your `.env` (or provide equivalents).
 - npm (or pnpm/yarn — scripts assume npm).
 
@@ -156,15 +156,24 @@ npx playwright install
 cp .env.example .env
 #    → edit .env with real (non-production) test-user credentials
 
-# 4. Make sure the KPost app is up at https://localhost:3000
+# 4. Make sure the KPost app is up at http://localhost:3000
 
 # 5. Run the suite
 npm test
 ```
 
-> **SSL note:** KPost serves over HTTPS with a self-signed dev certificate.
-> `ignoreHTTPSErrors: true` is set globally in `playwright.config.ts` and in
-> `global-setup.ts`, so localhost cert warnings won't break the run.
+> **Origin note — read this before changing `BASE_URL`.** KPost initialises a
+> service worker without checking one exists, so it only runs in a **secure
+> context**. `http://localhost:3000` qualifies (browsers treat localhost as
+> secure) and so does any `https://` origin. A plain-HTTP LAN address such as
+> `http://192.168.0.50:3000` does **not**: `navigator.serviceWorker` is
+> `undefined`, the app throws before its first paint, and every test fails
+> against a blank page that still answers HTTP 200. Verified 2026-08-27.
+>
+> When the dev server *is* started with `HTTPS=true` it uses a self-signed
+> certificate; `ignoreHTTPSErrors: true` is set globally in
+> `playwright.config.ts` and in `global-setup.ts`, so cert warnings won't break
+> the run.
 
 ---
 

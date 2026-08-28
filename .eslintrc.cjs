@@ -43,6 +43,24 @@ module.exports = {
   },
   overrides: [
     {
+      // `src/**/*.test.ts` are VITEST unit tests, not Playwright specs — pure
+      // logic, no browser. eslint-plugin-playwright cannot tell the two apart
+      // and reports every `expect()` inside a vitest `it()` as a standalone
+      // expect (60 errors, which silently broke `npm run ci` at the lint gate).
+      // Playwright's rules simply do not apply to this file set; the Playwright
+      // suite under tests/ keeps every one of them.
+      files: ['src/**/*.test.ts'],
+      extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended', 'prettier'],
+      rules: {
+        'playwright/no-standalone-expect': 'off',
+        'playwright/no-conditional-in-test': 'off',
+        'playwright/no-skipped-test': 'off',
+        'playwright/expect-expect': 'off',
+        'playwright/valid-title': 'off',
+        'playwright/no-conditional-expect': 'off',
+      },
+    },
+    {
       // Page objects are not tests. Now that POM methods wrap their bodies in
       // `test.step()`, the Playwright plugin's test-body heuristics treat those
       // callbacks as test bodies and flag ordinary defensive branching inside

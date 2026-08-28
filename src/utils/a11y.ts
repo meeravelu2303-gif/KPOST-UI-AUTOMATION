@@ -13,17 +13,17 @@
  *
  * ## Verification status
  *
- * ⚠ UNVERIFIED against the live app. The helper and its specs are written from
- * the axe-core API and this bench's conventions, but no scan has been executed
- * against a running KPost instance yet — the app was not available when they
- * were added. Expect the first real run to surface genuine violations, since
- * two are already documented in CLAUDE.md.
+ * VERIFIED against the live app. The scans have run, and they found real
+ * conformance failures: KPOST-A11Y-001 through -006 in `known-defects.ts` are
+ * all sightings from these scans (2026-08-16, chromium, WCAG 2.1 A/AA), not
+ * predictions. The login screen returns 3 violations and the Home pane 4, so
+ * the specs that assert zero are legitimately red.
  *
- * When that first run happens: violations found are APPLICATION defects, not
- * test debt. Register each in `known-defects.ts` — only after observing it
- * directly, that registry's entries are confirmed sightings, never predictions
- * — and attach it with `noteKnownDefect()`. Do not relax `RULE_TAGS` or
- * `disableRules` to get to green; that is the one move this bench forbids.
+ * Violations found here are APPLICATION defects, not test debt. Register each
+ * in `known-defects.ts` — only after observing it directly; that registry's
+ * entries are confirmed sightings, never predictions — and attach it with
+ * `noteKnownDefect()`. Do not relax `RULE_TAGS` or `disableRules` to get to
+ * green; that is the one move this bench forbids.
  */
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
