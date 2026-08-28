@@ -20,6 +20,14 @@
 import { type Locator, type Page, expect, test } from '@playwright/test';
 import { BasePage } from './BasePage';
 import type { Credentials } from '../config/env';
+import { countryCombobox, waitForLoginFormReady } from '../utils/login-preflight';
+
+/**
+ * How long to give the login form to become usable. Generous on purpose: the
+ * screen boots behind a PersistGate loader and then waits on a network call
+ * for its country list, and a false negative here reads as "the app is down".
+ */
+const LOGIN_FORM_READY_TIMEOUT = 45_000;
 
 export class LoginPage extends BasePage {
   protected readonly path = '/login';
@@ -59,8 +67,30 @@ export class LoginPage extends BasePage {
 
   async enterId(id: string): Promise<void> {
     await test.step('Enter the KPOST ID', async () => {
+      await this.expectFormUsable();
       await this.fill(this.idInput, id);
     });
+  }
+
+  /**
+   * Wait until the form can actually be typed into.
+   *
+   * The ID field ships disabled until the app has resolved a country for
+   * itself ( in Login.js), so every login starts here.
+   * When that never happens the raw failure is 30s of "element is not
+   * enabled"; this turns it into KPOST-AUTH-004 with the evidence attached.
+   */
+  async expectFormUsable(): Promise<void> {
+    await waitForLoginFormReady(this.page, this.idInput, LOGIN_FORM_READY_TIMEOUT);
+  }
+
+  /** The KPOST ID field, exposed so a spec can assert it became usable. */
+  get idInputLocator(): Locator {
+    return this.idInput;
+  }
+  /** The country control, exposed so a spec can assert the list populated. */
+  get country(): Locator {
+    return countryCombobox(this.page);
   }
 
   async submitId(): Promise<void> {

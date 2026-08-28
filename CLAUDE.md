@@ -12,9 +12,9 @@ for the full tour, `OPERATIONS.md` for running it and delivering its reports,
 `docs/archive/TEST-BENCH-REPORT.md` for the archived state-of-the-bench analysis,
 and this file for the working contract.
 
-**Current size:** 11 page objects · 14 spec files · 79 tests · 4 browser projects
-(chromium, firefox, webkit, mobile-chrome) = **316 tests planned per full run**.
-That 316 is the number every report calls `totalTests`; confirm it with
+**Current size:** 11 page objects · 15 spec files · 81 tests · 4 browser projects
+(chromium, firefox, webkit, mobile-chrome) = **324 tests planned per full run**.
+That 324 is the number every report calls `totalTests`; confirm it with
 `npm run test:list` after adding specs.
 
 ## The app under test — verified ground truth
@@ -48,8 +48,35 @@ into global setup — the app is up, answering 200, and rendering nothing.
 That the app crashes outright instead of degrading is itself the defect behind
 KPOST-GENERAL-001; the origin is what decides whether it fires.
 
-**Login is two-step.** `/login` → `textbox "Enter KPOST ID / Mobile number"` →
-`Submit` → `textbox "Enter your password"` → `Login` → lands on `/home`.
+**Login is two-step, behind a country gate.** `/login` →
+`textbox "Enter KPOST ID / Mobile number"` → `Submit` →
+`textbox "Enter your password"` → `Login` → lands on `/home`.
+
+The screen also renders a **Country** combobox above the ID field, and the ID
+input is `disabled={!country}` (Login.js). The app fills that itself — it
+fetches `/v2/common/countries` on mount and defaults to `+91 India` — so a
+healthy app needs no interaction there and the flow stays ID → password. The
+suite therefore does not select a country; it *waits for the form to become
+usable* and diagnoses it when that never happens.
+
+> 🚨 **BLOCKED as of 2026-08-28 — KPOST-AUTH-004.** That country list currently
+> renders "No options", so the KPOST ID field never enables and **nobody can
+> sign in**, by hand or under test. The data is fine (the endpoint returns 200
+> with 200+ countries); `Login.js:970` gates it on a case-sensitive
+> `response.status === "SUCCESS"` while the local backend's `common/*`
+> controller answers `"Success"`. Proved by rewriting only that one string in
+> the response: the country defaults to `+91 India` and a full sign-in
+> completes. Until it is fixed, `npm run test:serial` aborts in global setup
+> with that defect id — deliberately, rather than running 324 tests to prove
+> the same point 324 times. `src/utils/login-preflight.ts` owns the diagnosis
+> and `tests/auth/login-form.spec.ts` pins the contract.
+
+> **Related, and a trap:** `ListDomains` (Login.js:1249) compares the same way,
+> and `/v2/common/domain` answers `"Success"` too — so while KPOST-AUTH-004 is
+> live the domain-suggestion overlay described below never renders either. Do
+> **not** conclude from that run that the overlay is gone and simplify
+> `submitId()`: fixing the casing brings both lists back, and the overlay with
+> them.
 
 > ⚠ **The Submit button is covered by an undismissable overlay.** Typing an "@"
 > pops `ul.login__domain-list` ("@kpostindia.com") directly over Submit. It
@@ -553,7 +580,7 @@ npm run test:smoke                         # @smoke only
 npm run test:serial                        # workers=1 — required for app-dependent runs
 npm run test:ui                            # time-travel debugging
 npm run test:unit                          # vitest — pure logic, no browser/app/account needed
-npm run test:list                          # enumerate (316) without running — now SAFE.
+npm run test:list                          # enumerate (324) without running — now SAFE.
                                            # It passes `--reporter=list`, which replaces the
                                            # configured reporters for that invocation, so the
                                            # html/json/junit ones never fire and cannot overwrite

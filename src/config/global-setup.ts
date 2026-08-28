@@ -23,6 +23,7 @@ import path from 'node:path';
 import { env, type Credentials } from './env';
 import { logger } from '../utils/logger';
 import { apiLogin } from '../utils/api-helpers';
+import { waitForLoginFormReady } from '../utils/login-preflight';
 
 export const AUTH_DIR = path.resolve('.auth');
 export const STANDARD_STORAGE_STATE = path.join(AUTH_DIR, 'standard.json');
@@ -143,6 +144,12 @@ async function seedViaUi(
   // Step 1 — KPOST ID.
   const idInput = page.getByRole('textbox', { name: 'Enter KPOST ID / Mobile number' });
   await idInput.waitFor({ state: 'visible', timeout: LOGIN_RENDER_TIMEOUT });
+
+  // The field ships disabled until the app resolves a country for itself. If that
+  // never happens nobody can sign in, and global setup failing here takes the whole
+  // run down — so fail with the diagnosis rather than with a bare fill timeout.
+  await waitForLoginFormReady(page, idInput, LOGIN_RENDER_TIMEOUT);
+
   await idInput.fill(credentials.email);
 
   // The domain-suggestion overlay covers Submit and cannot be dismissed, and a
