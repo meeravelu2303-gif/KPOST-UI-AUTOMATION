@@ -20,7 +20,11 @@
 import { type Locator, type Page, expect, test } from '@playwright/test';
 import { BasePage } from './BasePage';
 import type { Credentials } from '../config/env';
-import { countryCombobox, waitForLoginFormReady } from '../utils/login-preflight';
+import {
+  countryCombobox,
+  waitForLoginFormReady,
+  watchCountryList,
+} from '../utils/login-preflight';
 
 /**
  * How long to give the login form to become usable. Generous on purpose: the
@@ -51,6 +55,19 @@ export class LoginPage extends BasePage {
     this.sessionExpiredAlert = page.getByRole('alert').filter({ hasText: /session has expired/i });
   }
 
+  /**
+   * Navigate to /login, recording the country-list traffic on the way in.
+   *
+   * The watch has to be armed BEFORE the navigation: if the browser blocks that
+   * request (an http:// API called from an https:// page, say) it leaves nothing
+   * behind to inspect afterwards, and `describeBlockedLogin()` would have to
+   * guess at a cause it could not see.
+   */
+  override async open(): Promise<void> {
+    watchCountryList(this.page);
+    await super.open();
+  }
+
   /** True once the first (ID) step has rendered. */
   async isLoaded(): Promise<boolean> {
     return this.isVisible(this.idInput);
@@ -75,10 +92,10 @@ export class LoginPage extends BasePage {
   /**
    * Wait until the form can actually be typed into.
    *
-   * The ID field ships disabled until the app has resolved a country for
-   * itself ( in Login.js), so every login starts here.
-   * When that never happens the raw failure is 30s of "element is not
-   * enabled"; this turns it into KPOST-AUTH-004 with the evidence attached.
+   * The ID field ships disabled until the app has resolved a country for itself
+   * (`disabled={!country}` in Login.js), so every login starts here. When that
+   * never happens the raw failure is 45s of "element is not enabled"; this
+   * turns it into a diagnosis that names the actual cause.
    */
   async expectFormUsable(): Promise<void> {
     await waitForLoginFormReady(this.page, this.idInput, LOGIN_FORM_READY_TIMEOUT);

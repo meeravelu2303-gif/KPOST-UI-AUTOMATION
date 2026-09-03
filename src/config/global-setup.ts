@@ -23,7 +23,7 @@ import path from 'node:path';
 import { env, type Credentials } from './env';
 import { logger } from '../utils/logger';
 import { apiLogin } from '../utils/api-helpers';
-import { waitForLoginFormReady } from '../utils/login-preflight';
+import { waitForLoginFormReady, watchCountryList } from '../utils/login-preflight';
 
 export const AUTH_DIR = path.resolve('.auth');
 export const STANDARD_STORAGE_STATE = path.join(AUTH_DIR, 'standard.json');
@@ -139,6 +139,11 @@ async function seedViaUi(
     ignoreHTTPSErrors: true,
   });
   const page = await context.newPage();
+
+  // Armed before navigating: a request the browser blocks outright leaves
+  // nothing behind to inspect, and the diagnosis below depends on seeing it.
+  watchCountryList(page);
+
   await page.goto('/login', { waitUntil: 'domcontentloaded', timeout: LOGIN_RENDER_TIMEOUT });
 
   // Step 1 — KPOST ID.
