@@ -22,6 +22,45 @@ That 324 is the number every report calls `totalTests`; confirm it with
 Everything in this section was read off the running app on **2026-08-12**, not
 assumed. If you change a locator, verify it the same way.
 
+### ⚠ The environment moved on 2026-09-03 — and needs two changes before it runs
+
+The old setup is gone: `localhost:3000` no longer serves and `192.168.1.176:8989`
+answers on no port. The UI is now at **`https://192.168.0.83:3001`** (self-signed
+cert; `ignoreHTTPSErrors` already covers it) and the backend holding this bench's
+accounts is **`192.168.2.94:8989`** — the same one the API bench points at.
+
+They are not yet connected to each other. Measured 2026-09-03:
+
+| Check | Result |
+| --- | --- |
+| `192.168.2.94:8989` reachable from the bench | ✅ 200, full country list (ICMP is firewalled; TCP is fine) |
+| The bench's 3 accounts exist there | ✅ Qa Alpha, Meera Velu, Qa Disposable |
+| What the UI at `.83` actually calls | ❌ `devapi2.kpostindia.com` |
+| Those accounts on devapi2 | ❌ `fetchUserDetails` → 500 for every id form |
+
+So login fails today at step 1, and no test can run. **Two changes are needed, and
+both are required — either alone is not enough.** Both were verified by rerouting
+the UI's calls to the real backend and watching what happened:
+
+1. **Point the UI at `192.168.2.94:8989` through a SAME-ORIGIN `/api` proxy** —
+   not directly. Direct calls fail twice over: the backend answers `403 Invalid
+   CORS request` to anything carrying an `Origin` header, and the page is HTTPS
+   while the backend is HTTP, which browsers block as mixed content (observed
+   live: `Mixed Content: … requested an insecure resource`). A dev-server proxy
+   makes the call same-origin and server-to-server, which sidesteps both — the
+   `setupProxy.js` pattern already in the `KPOST_REACTJS_2023_V1` tree.
+2. **Fix KPOST-AUTH-004** (Bugzilla #93). `192.168.2.94`'s `common/*` controller
+   returns `"status":"Success"` exactly as the old backend did, so pointing the
+   UI at it *without* the casing fix reproduces the blocker immediately: country
+   list empty, KPOST ID field disabled. Confirmed by direct test.
+
+With both applied, the flow gets through: country resolves to `+91 India`, the ID
+field enables, the password step appears, and `POST /v2/signupLogin/userLogin/`
+returns 200 with an access token. Reaching `/home` could not be confirmed from
+here, because the app also calls `kmail5.kpostindia.com`, which 401s a token
+issued by a different backend — an artefact of the simulation, not a proven
+defect. Re-verify it once the environment is properly wired.
+
 ### ⚠ `BASE_URL` must be a SECURE CONTEXT — this is the single biggest footgun
 
 **KPost does not run on a plain-HTTP LAN address.** Verified 2026-08-27, headless
